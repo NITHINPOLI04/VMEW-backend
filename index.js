@@ -13,7 +13,7 @@ const PORT = process.env.PORT || 5000;
 const JWT_SECRET = process.env.JWT_SECRET || 'your_jwt_secret_key';
 
 // Middleware
-app.use(cors({ origin: 'https://VMEW.onrender.com' })); // Update to frontend URL in production
+app.use(cors({ origin: 'https://vmew.onrender.com' })); // Update to frontend URL in production
 app.use(express.json());
 
 // MongoDB Connection
