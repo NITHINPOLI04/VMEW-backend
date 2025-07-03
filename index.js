@@ -95,8 +95,6 @@ const inventorySchema = new mongoose.Schema({
   total: { type: Number, required: true },
   transport: { type: Number, required: true },
   gstPercentage: { type: Number, required: true },
-  paymentDetails: { type: String, required: true },
-  paymentDate: { type: String, required: true },
   taxType: { type: String, required: true, enum: ['sgstcgst', 'igst'] }
 }, { timestamps: true });
 
