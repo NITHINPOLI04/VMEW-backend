@@ -8,7 +8,7 @@ function convertToWords(amount) {
     // Split the amount into whole number and decimal parts
     const [wholeNumber, decimal] = roundedAmount.toFixed(2).split('.');
     
-    // Convert the whole number to words with Indian numbering
+    // Convert the whole number to words with Indian numbering (en-IN locale)
     let words = toWords(parseInt(wholeNumber), { localeCode: 'en-IN' });
     
     // Capitalize the first letter
