@@ -11,16 +11,18 @@ function convertToWords(amount) {
 
       if (num === 0) return 'Zero';
 
+      // Convert to string and split into groups of 2 or 3 digits from right to left for Indian system
+      const numStr = num.toString().padStart(Math.ceil(num.toString().length / 2) * 2, '0');
       const chunks = [];
-      while (num > 0) {
-        chunks.unshift(num % 1000);
-        num = Math.floor(num / 1000);
+      for (let i = numStr.length; i > 0; i -= 2) {
+        const start = Math.max(0, i - 2);
+        chunks.unshift(parseInt(numStr.substring(start, i), 10));
       }
 
       const words = [];
       for (let i = 0; i < chunks.length; i++) {
         const chunk = chunks[i];
-        if (chunk === 0 && i === chunks.length - 1) continue;
+        if (chunk === 0 && i === chunks.length - 1) continue; // Skip leading zero chunk
         if (chunk === 0) continue;
         let chunkWords = '';
         const hundred = Math.floor(chunk / 100);
@@ -28,20 +30,22 @@ function convertToWords(amount) {
         const ten = Math.floor(remainder / 10);
         const unit = remainder % 10;
 
-        if (hundred > 0) chunkWords += `${units[hundred]} Hundred `;
+        if (hundred > 0) chunkWords += `${units[hundred]} Hundred`;
         if (remainder > 0) {
-          if (remainder < 10) chunkWords += ` ${units[remainder]}`;
-          else if (remainder < 20) chunkWords += ` ${teens[remainder - 10]}`;
+          if (remainder > 0 && chunkWords) chunkWords += ' '; // Add space if hundred is present
+          if (remainder < 10) chunkWords += units[unit];
+          else if (remainder < 20) chunkWords += teens[remainder - 10];
           else {
-            chunkWords += ` ${tens[ten]}`;
+            chunkWords += tens[ten];
             if (unit > 0) chunkWords += `-${units[unit]}`.replace('-', ' ');
           }
         }
-        if (chunkWords.trim() && i > 0) chunkWords += ` ${scales[chunks.length - i - 1]}`;
+        const scaleIndex = Math.floor((chunks.length - i - 1) / 2); // Adjust scale for Indian system (Lakh every 2 chunks)
+        if (chunkWords && scaleIndex > 0) chunkWords += ` ${scales[scaleIndex]}`;
         words.push(chunkWords.trim());
       }
 
-      return words.reverse().join(' ').trim();
+      return words.join(' ').trim();
     };
 
     let words = indianToWords(parseInt(wholeNumber));
