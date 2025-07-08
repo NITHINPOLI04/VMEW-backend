@@ -1,25 +1,31 @@
-function convertToWords(number) {
-  // Basic implementation for number to words
-  // For production, consider using 'number-to-words' library
-  const units = ['Zero', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine'];
-  const teens = ['Ten', 'Eleven', 'Twelve', 'Thirteen', 'Fourteen', 'Fifteen', 'Sixteen', 'Seventeen', 'Eighteen', 'Nineteen'];
-  const tens = ['', '', 'Twenty', 'Thirty', 'Forty', 'Fifty', 'Sixty', 'Seventy', 'Eighty', 'Ninety'];
+const { toWords } = require('number-to-words');
 
-  if (number === 0) return units[0];
-  if (number < 10) return units[number];
-  if (number < 20) return teens[number - 10];
-  if (number < 100) {
-    const ten = Math.floor(number / 10);
-    const unit = number % 10;
-    return unit === 0 ? tens[ten] : `${tens[ten]} ${units[unit]}`;
+function convertToWords(amount) {
+  try {
+    // Round to 2 decimal places to avoid floating point issues
+    const roundedAmount = Math.round(amount * 100) / 100;
+    
+    // Split the amount into whole number and decimal parts
+    const [wholeNumber, decimal] = roundedAmount.toFixed(2).split('.');
+    
+    // Convert the whole number to words with Indian numbering
+    let words = toWords(parseInt(wholeNumber), { localeCode: 'en-IN' });
+    
+    // Capitalize the first letter
+    words = words.charAt(0).toUpperCase() + words.slice(1).toLowerCase();
+    
+    // Handle decimal part
+    const decimalValue = parseInt(decimal);
+    if (decimalValue > 0) {
+      const decimalWords = toWords(decimalValue, { localeCode: 'en-IN' });
+      return `${words} Rupees and ${decimalWords} Paise only`;
+    } else {
+      return `${words} Rupees only`;
+    }
+  } catch (error) {
+    console.error('Error converting number to words:', error);
+    return 'Amount conversion error';
   }
-  if (number < 1000) {
-    const hundred = Math.floor(number / 100);
-    const remainder = number % 100;
-    return remainder === 0 ? `${units[hundred]} Hundred` : `${units[hundred]} Hundred ${convertToWords(remainder)}`;
-  }
-  // Extend for larger numbers as needed
-  return 'Number too large'; // Placeholder for numbers >= 1000
 }
 
 module.exports = { convertToWords };
