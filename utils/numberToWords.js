@@ -11,12 +11,21 @@ function convertToWords(amount) {
 
       if (num === 0) return 'Zero';
 
-      // Convert to string and split into groups of 2 or 3 digits from right to left for Indian system
-      const numStr = num.toString().padStart(Math.ceil(num.toString().length / 2) * 2, '0');
+      // Convert to string and apply Indian grouping (last 3 digits, then pairs)
+      const numStr = num.toString();
       const chunks = [];
-      for (let i = numStr.length; i > 0; i -= 2) {
+      let i = numStr.length;
+
+      // Last group (3 digits or less)
+      const lastGroupSize = Math.min(3, i);
+      chunks.unshift(parseInt(numStr.substring(i - lastGroupSize, i), 10));
+      i -= lastGroupSize;
+
+      // Remaining groups in pairs (2 digits)
+      while (i > 0) {
         const start = Math.max(0, i - 2);
         chunks.unshift(parseInt(numStr.substring(start, i), 10));
+        i -= 2;
       }
 
       const words = [];
@@ -40,7 +49,7 @@ function convertToWords(amount) {
             if (unit > 0) chunkWords += `-${units[unit]}`.replace('-', ' ');
           }
         }
-        const scaleIndex = Math.floor((chunks.length - i - 1) / 2); // Adjust scale for Indian system (Lakh every 2 chunks)
+        const scaleIndex = chunks.length - i - 1; // Apply scale based on position
         if (chunkWords && scaleIndex > 0) chunkWords += ` ${scales[scaleIndex]}`;
         words.push(chunkWords.trim());
       }
