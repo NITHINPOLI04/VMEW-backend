@@ -20,6 +20,7 @@ function convertToWords(amount) {
       const words = [];
       for (let i = 0; i < chunks.length; i++) {
         const chunk = chunks[i];
+        if (chunk === 0 && i === chunks.length - 1) continue;
         if (chunk === 0) continue;
         let chunkWords = '';
         const hundred = Math.floor(chunk / 100);
@@ -29,14 +30,14 @@ function convertToWords(amount) {
 
         if (hundred > 0) chunkWords += `${units[hundred]} Hundred `;
         if (remainder > 0) {
-          if (remainder < 10) chunkWords += units[remainder];
-          else if (remainder < 20) chunkWords += teens[remainder - 10];
+          if (remainder < 10) chunkWords += ` ${units[remainder]}`;
+          else if (remainder < 20) chunkWords += ` ${teens[remainder - 10]}`;
           else {
-            chunkWords += tens[ten];
+            chunkWords += ` ${tens[ten]}`;
             if (unit > 0) chunkWords += `-${units[unit]}`.replace('-', ' ');
           }
         }
-        if (chunkWords && i > 0) chunkWords += ` ${scales[chunks.length - i - 1]}`;
+        if (chunkWords.trim() && i > 0) chunkWords += ` ${scales[chunks.length - i - 1]}`;
         words.push(chunkWords.trim());
       }
 

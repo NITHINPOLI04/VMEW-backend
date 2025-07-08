@@ -195,10 +195,15 @@ app.post('/api/invoices', authenticate, async (req, res) => {
     const year = invoiceDate.getFullYear();
     const financialYear = month >= 3 ? `${year}-${year + 1}` : `${year - 1}-${year}`;
     
+    // Compute totalInWords server-side
+    const grandTotal = invoiceData.grandTotal || 0;
+    const totalInWords = convertToWords(grandTotal);
+
     const newInvoice = new Invoice({
       ...invoiceData,
       userId: req.user.userId,
-      financialYear
+      financialYear,
+      totalInWords // Set or override totalInWords
     });
     
     await newInvoice.save();
