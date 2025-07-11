@@ -387,6 +387,9 @@ app.post('/api/utils/number-to-words', (req, res) => {
   }
 });
 
+// Health-check route for uptime pings
+app.get('/api/healthz', (req, res) => res.status(200).send('OK'));
+
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
