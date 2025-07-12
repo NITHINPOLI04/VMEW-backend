@@ -4,6 +4,7 @@ const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const dotenv = require('dotenv');
 const cors = require('cors');
+const morgan = require('morgan');
 const { convertToWords } = require('./utils/numberToWords.js');
 
 dotenv.config();
@@ -15,6 +16,7 @@ const JWT_SECRET = process.env.JWT_SECRET || 'your_jwt_secret_key';
 // Middleware
 app.use(cors({ origin: 'https://vmew.onrender.com' })); // Update to frontend URL in production
 app.use(express.json());
+app.use(morgan('dev'));
 
 // MongoDB Connection
 const MONGODB_URI = process.env.MONGODB_URI;
