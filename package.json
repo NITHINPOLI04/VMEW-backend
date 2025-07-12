@@ -19,6 +19,7 @@
     "express": "^5.1.0",
     "jsonwebtoken": "^9.0.2",
     "mongoose": "^8.15.2",
+    "morgan": "^1.10.0",
     "number-to-words": "^1.2.4",
     "vite": "^6.3.5"
   }
