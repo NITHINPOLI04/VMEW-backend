@@ -14,7 +14,14 @@ const PORT = process.env.PORT || 5000;
 const JWT_SECRET = process.env.JWT_SECRET || 'your_jwt_secret_key';
 
 // Middleware
-app.use(cors({ origin: 'https://vmew.onrender.com' })); // Update to frontend URL in production
+const corsOptions = {
+  origin: 'https://vmew.onrender.com', // Frontend origin
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'], // Allow all relevant methods
+  allowedHeaders: ['Content-Type', 'Authorization'], // Allow common headers
+  credentials: true, // Enable credentials (e.g., cookies, auth headers)
+  optionsSuccessStatus: 200, // Respond 200 to preflight requests
+};
+app.use(cors(corsOptions));
 app.use(express.json());
 app.use(morgan('dev'));
 
@@ -197,7 +204,6 @@ app.post('/api/invoices', authenticate, async (req, res) => {
     const year = invoiceDate.getFullYear();
     const financialYear = month >= 3 ? `${year}-${year + 1}` : `${year - 1}-${year}`;
     
-    // Compute totalInWords server-side
     const grandTotal = invoiceData.grandTotal || 0;
     const totalInWords = convertToWords(grandTotal);
 
@@ -205,7 +211,7 @@ app.post('/api/invoices', authenticate, async (req, res) => {
       ...invoiceData,
       userId: req.user.userId,
       financialYear,
-      totalInWords // Set or override totalInWords
+      totalInWords
     });
     
     await newInvoice.save();
