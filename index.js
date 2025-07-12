@@ -25,6 +25,11 @@ app.use(cors(corsOptions));
 app.use(express.json());
 app.use(morgan('dev'));
 
+// Explicit OPTIONS handler for /api/auth/login to handle preflight requests
+app.options('/api/auth/login', cors(corsOptions), (req, res) => {
+  res.status(200).end();
+});
+
 // MongoDB Connection
 const MONGODB_URI = process.env.MONGODB_URI;
 
