@@ -73,6 +73,10 @@ const invoiceSchema = new mongoose.Schema({
     igstAmount: { type: Number }
   }],
   taxType: { type: String, required: true },
+  discountEnabled: { type: Boolean },
+  discountPercentage: { type: Number },
+  discountAmount: { type: Number },
+  subTotal: { type: Number },
   grandTotal: { type: Number, required: true },
   totalInWords: { type: String, required: true },
   paymentStatus: {
@@ -194,6 +198,7 @@ const purchaseOrderSchema = new mongoose.Schema({
   reference: { type: String },
   items: [{
     description: { type: String, required: true },
+    hsnSacCode: { type: String },
     quantity: { type: Number, required: true },
     unit: { type: String, required: true },
     rate: { type: Number, required: true },
@@ -206,6 +211,10 @@ const purchaseOrderSchema = new mongoose.Schema({
     igstAmount: { type: Number }
   }],
   taxType: { type: String, required: true },
+  discountEnabled: { type: Boolean },
+  discountPercentage: { type: Number },
+  discountAmount: { type: Number },
+  subTotal: { type: Number },
   grandTotal: { type: Number, required: true },
   totalInWords: { type: String, required: true },
   notes: { type: String },
