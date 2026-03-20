@@ -689,6 +689,44 @@ app.post('/api/suppliers', authenticate, async (req, res) => {
   }
 });
 
+app.put('/api/suppliers/:id', authenticate, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const supplierData = req.body;
+    
+    const updatedSupplier = await Supplier.findOneAndUpdate(
+      { _id: id, userId: req.user.userId },
+      { ...supplierData },
+      { new: true, runValidators: true }
+    );
+
+    if (!updatedSupplier) {
+      return res.status(404).json({ message: 'Supplier not found' });
+    }
+
+    res.json(updatedSupplier);
+  } catch (error) {
+    console.error('Error updating supplier:', error.message, error.stack);
+    res.status(500).json({ message: 'Error updating supplier', error: error.message });
+  }
+});
+
+app.delete('/api/suppliers/:id', authenticate, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const deletedSupplier = await Supplier.findOneAndDelete({ _id: id, userId: req.user.userId });
+    
+    if (!deletedSupplier) {
+      return res.status(404).json({ message: 'Supplier not found' });
+    }
+    
+    res.json({ message: 'Supplier deleted successfully' });
+  } catch (error) {
+    console.error('Error deleting supplier:', error.message, error.stack);
+    res.status(500).json({ message: 'Error deleting supplier', error: error.message });
+  }
+});
+
 // Customer Routes
 app.get('/api/customers', authenticate, async (req, res) => {
   try {
@@ -712,6 +750,44 @@ app.post('/api/customers', authenticate, async (req, res) => {
   } catch (error) {
     console.error('Error creating customer:', error.message, error.stack);
     res.status(500).json({ message: 'Error creating customer', error: error.message });
+  }
+});
+
+app.put('/api/customers/:id', authenticate, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const customerData = req.body;
+    
+    const updatedCustomer = await Customer.findOneAndUpdate(
+      { _id: id, userId: req.user.userId },
+      { ...customerData },
+      { new: true, runValidators: true }
+    );
+
+    if (!updatedCustomer) {
+      return res.status(404).json({ message: 'Customer not found' });
+    }
+
+    res.json(updatedCustomer);
+  } catch (error) {
+    console.error('Error updating customer:', error.message, error.stack);
+    res.status(500).json({ message: 'Error updating customer', error: error.message });
+  }
+});
+
+app.delete('/api/customers/:id', authenticate, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const deletedCustomer = await Customer.findOneAndDelete({ _id: id, userId: req.user.userId });
+    
+    if (!deletedCustomer) {
+      return res.status(404).json({ message: 'Customer not found' });
+    }
+    
+    res.json({ message: 'Customer deleted successfully' });
+  } catch (error) {
+    console.error('Error deleting customer:', error.message, error.stack);
+    res.status(500).json({ message: 'Error deleting customer', error: error.message });
   }
 });
 
