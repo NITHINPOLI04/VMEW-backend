@@ -6,6 +6,7 @@ const dotenv = require('dotenv');
 const cors = require('cors');
 const morgan = require('morgan');
 const { convertToWords } = require('./utils/numberToWords.js');
+const { financialValidationMiddleware } = require('./utils/calcEngine.js');
 const path = require('path');
 
 dotenv.config({ path: path.join(__dirname, '.env') });
@@ -315,7 +316,7 @@ app.get('/api/invoices/id/:id', authenticate, async (req, res) => {
   }
 });
 
-app.post('/api/invoices', authenticate, async (req, res) => {
+app.post('/api/invoices', authenticate, financialValidationMiddleware, async (req, res) => {
   try {
     const invoiceData = req.body;
     const invoiceDate = new Date(invoiceData.date);
@@ -341,7 +342,7 @@ app.post('/api/invoices', authenticate, async (req, res) => {
   }
 });
 
-app.put('/api/invoices/:id', authenticate, async (req, res) => {
+app.put('/api/invoices/:id', authenticate, financialValidationMiddleware, async (req, res) => {
   try {
     const { id } = req.params;
     const invoiceData = req.body;
@@ -512,7 +513,7 @@ app.get('/api/quotation/id/:id', authenticate, async (req, res) => {
   }
 });
 
-app.post('/api/quotation', authenticate, async (req, res) => {
+app.post('/api/quotation', authenticate, financialValidationMiddleware, async (req, res) => {
   try {
     const data = req.body;
     const docDate = new Date(data.date);
@@ -534,7 +535,7 @@ app.post('/api/quotation', authenticate, async (req, res) => {
   }
 });
 
-app.put('/api/quotation/:id', authenticate, async (req, res) => {
+app.put('/api/quotation/:id', authenticate, financialValidationMiddleware, async (req, res) => {
   try {
     const { id } = req.params;
     const data = req.body;
@@ -815,7 +816,7 @@ app.get('/api/po/id/:id', authenticate, async (req, res) => {
   }
 });
 
-app.post('/api/po', authenticate, async (req, res) => {
+app.post('/api/po', authenticate, financialValidationMiddleware, async (req, res) => {
   try {
     const poData = req.body;
     const poDate = new Date(poData.date);
@@ -841,7 +842,7 @@ app.post('/api/po', authenticate, async (req, res) => {
   }
 });
 
-app.put('/api/po/:id', authenticate, async (req, res) => {
+app.put('/api/po/:id', authenticate, financialValidationMiddleware, async (req, res) => {
   try {
     const { id } = req.params;
     const poData = req.body;
