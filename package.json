@@ -12,15 +12,14 @@
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
-    "@vitejs/plugin-react": "^4.5.2",
     "bcrypt": "^6.0.0",
     "cors": "^2.8.5",
     "dotenv": "^16.5.0",
     "express": "^5.1.0",
+    "express-rate-limit": "^8.3.2",
     "jsonwebtoken": "^9.0.2",
     "mongoose": "^8.15.2",
     "morgan": "^1.10.0",
-    "number-to-words": "^1.2.4",
-    "vite": "^6.3.5"
+    "zod": "^4.3.6"
   }
 }

@@ -1,3 +1,8 @@
+/**
+ * ⚠️  SYNC WARNING: This file MUST stay in sync with src/utils/numberToWords.ts.
+ *     If you edit logic here, copy the changes to the client copy (and vice versa).
+ *     Both use Indian number grouping (Lakhs/Crores) with Rupees/Paise formatting.
+ */
 function convertToWords(amount) {
   try {
     const roundedAmount = Math.round(amount * 100) / 100;
