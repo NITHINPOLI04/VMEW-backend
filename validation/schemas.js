@@ -82,6 +82,7 @@ const invoiceBodySchema = z.object({
   grandTotal:    z.number().min(0, 'Grand total must be ≥ 0'),
   totalInWords:  z.string().optional(),
   paymentStatus: z.enum(['Payment Complete', 'Partially Paid', 'Unpaid']).default('Unpaid'),
+  invoiceType:   z.enum(['Product', 'Service']).default('Product'),
 });
 
 const paymentStatusSchema = z.object({

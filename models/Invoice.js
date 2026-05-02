@@ -25,7 +25,8 @@ const invoiceSchema = new mongoose.Schema({
     cgstPercentage: { type: Number },
     cgstAmount: { type: Number },
     igstPercentage: { type: Number },
-    igstAmount: { type: Number }
+    igstAmount: { type: Number },
+    productKey: { type: String }
   }],
   taxType: { type: String, required: true },
   discountEnabled: { type: Boolean },
@@ -45,7 +46,8 @@ const invoiceSchema = new mongoose.Schema({
     enum: ['Payment Complete', 'Partially Paid', 'Unpaid'],
     default: 'Unpaid'
   },
-  financialYear: { type: String, required: true }
+  financialYear: { type: String, required: true },
+  invoiceType: { type: String, enum: ['Product', 'Service'], default: 'Product' }
 }, { timestamps: true });
 
 invoiceSchema.index({ userId: 1, financialYear: 1 });
