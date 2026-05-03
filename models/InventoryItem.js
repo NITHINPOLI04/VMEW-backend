@@ -16,5 +16,8 @@ const inventorySchema = new mongoose.Schema({
 
 inventorySchema.index({ userId: 1, financialYear: 1 });
 inventorySchema.index({ userId: 1, productKey: 1 });
+// Compound index matching the dedup query pattern used in POST
+// Can be made unique after running a dedup migration on existing data
+inventorySchema.index({ userId: 1, productKey: 1, financialYear: 1, transactionType: 1 });
 
 module.exports = mongoose.model('InventoryItem', inventorySchema);

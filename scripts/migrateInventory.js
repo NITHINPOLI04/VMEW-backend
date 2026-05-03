@@ -3,6 +3,9 @@
  *
  * One-time migration script to backfill productKey and currentStock
  * on existing inventory records.
+ * [DEPRECATED]: This script computes `currentStock = totalPurchased - totalSold` 
+ * which does not match the current incremental tracking behavior on Purchase records. 
+ * Use `syncInvoicesToInventory.js` instead.
  *
  * Usage:  node server/scripts/migrateInventory.js
  *
@@ -27,7 +30,7 @@ function normalizeProductKey(description) {
     .trim()
     .toLowerCase()
     .replace(/\s+/g, '_')
-    .replace(/[^a-z0-9_]/g, '');
+    .replace(/[^a-z0-9._]/g, '');
 }
 
 function computeStockStatus(currentStock) {

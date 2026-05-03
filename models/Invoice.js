@@ -51,5 +51,6 @@ const invoiceSchema = new mongoose.Schema({
 }, { timestamps: true });
 
 invoiceSchema.index({ userId: 1, financialYear: 1 });
+invoiceSchema.index({ userId: 1, financialYear: 1, "items.productKey": 1 });
 
 module.exports = mongoose.model('Invoice', invoiceSchema);

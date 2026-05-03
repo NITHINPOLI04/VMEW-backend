@@ -156,7 +156,7 @@ const templateBodySchema = z.union([letterheadSchema, defaultInfoSchema]);
 const inventoryBodySchema = z.object({
   description:     z.string().min(1, 'Description is required'),
   hsnSacCode:      z.string().min(1, 'HSN/SAC code is required'),
-  quantity:        z.number().min(0, 'Quantity must be ≥ 0'),
+  quantity:        z.number().positive('Quantity must be > 0'),
   unit:            z.enum(['Nos', 'Mts', 'Lts', 'Pkt', 'Kgs']),
   rate:            z.number().min(0, 'Rate must be ≥ 0'),
   transactionType: z.enum(['Sales', 'Purchase']),

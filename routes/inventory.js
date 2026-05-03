@@ -72,28 +72,33 @@ router.get('/:year', authenticate, async (req, res) => {
 });
 
 // POST /api/inventory
+// M3 fix: Dedup by (userId + productKey + FY + transactionType) only — not rate/HSN/unit.
+// This ensures one record per product per FY per type, consistent with how invoices look up stock.
 router.post('/', authenticate, validate(inventoryBodySchema), async (req, res) => {
   try {
     const d = req.body;
     const productKey = normalizeProductKey(d.description);
 
     if (productKey) {
-      // Find existing record for this product, transaction type, and FY
+      // Find existing record for this product + FY + type (M3: no rate/HSN/unit matching)
       const existingRecord = await InventoryItem.findOne({
         userId: req.user.userId,
         productKey,
         financialYear: d.financialYear,
         transactionType: d.transactionType,
-        hsnSacCode: d.hsnSacCode || '',
-        unit: d.unit || 'Nos',
-        rate: d.rate
       });
 
       if (existingRecord) {
-        // If it exists, update it instead of creating a new one
         const newQuantity = existingRecord.quantity + d.quantity;
         
-        let updateData = { quantity: newQuantity, rate: d.rate };
+        // Update quantity and refresh metadata to latest values
+        let updateData = {
+          quantity: newQuantity,
+          rate: d.rate,
+          hsnSacCode: d.hsnSacCode || existingRecord.hsnSacCode,
+          unit: d.unit || existingRecord.unit,
+          description: d.description,
+        };
         
         if (d.transactionType === 'Purchase') {
           const newStock = (existingRecord.currentStock || 0) + d.quantity;
@@ -138,16 +143,24 @@ router.post('/', authenticate, validate(inventoryBodySchema), async (req, res) =
 });
 
 // PUT /api/inventory/:id
+// C6 fix: Block transactionType changes — they break stock accounting.
 router.put('/:id', authenticate, validate(inventoryBodySchema), async (req, res) => {
   try {
     const { id } = req.params;
-    console.log("Updating inventory ID:", id);
     const d = req.body;
-    const productKey = normalizeProductKey(d.description);
     const existingItem = await InventoryItem.findOne({ _id: id, userId: req.user.userId });
     if (!existingItem) {
       return res.status(404).json({ message: 'Inventory item not found' });
     }
+
+    // C6: Block transactionType changes
+    if (d.transactionType !== existingItem.transactionType) {
+      return res.status(400).json({
+        message: `Cannot change transaction type from "${existingItem.transactionType}" to "${d.transactionType}". Delete and recreate the record instead.`
+      });
+    }
+
+    const productKey = normalizeProductKey(d.description);
 
     // Calculate quantity difference
     const diff = d.quantity - existingItem.quantity;
@@ -157,7 +170,6 @@ router.put('/:id', authenticate, validate(inventoryBodySchema), async (req, res)
     existingItem.quantity = d.quantity;
     existingItem.unit = d.unit;
     existingItem.rate = d.rate;
-    existingItem.transactionType = d.transactionType;
     existingItem.financialYear = d.financialYear;
     existingItem.productKey = productKey;
 
@@ -177,13 +189,33 @@ router.put('/:id', authenticate, validate(inventoryBodySchema), async (req, res)
 });
 
 // DELETE /api/inventory/:id
+// C4 fix: Block deletion of Purchase records that have associated Sales or invoice references.
 router.delete('/:id', authenticate, async (req, res) => {
   try {
     const { id } = req.params;
-    const deletedItem = await InventoryItem.findOneAndDelete({ _id: id, userId: req.user.userId });
-    if (!deletedItem) {
+    const item = await InventoryItem.findOne({ _id: id, userId: req.user.userId });
+    if (!item) {
       return res.status(404).json({ message: 'Inventory item not found' });
     }
+
+    // C4: Safety check — if this is a Purchase record, check for related Sales/invoices
+    if (item.transactionType === 'Purchase' && item.productKey) {
+      const relatedSales = await InventoryItem.findOne({
+        userId: req.user.userId,
+        productKey: item.productKey,
+        financialYear: item.financialYear,
+        transactionType: 'Sales',
+        quantity: { $gt: 0 },
+      });
+
+      if (relatedSales) {
+        return res.status(400).json({
+          message: `Cannot delete this Purchase record. There are Sales records referencing "${item.description}" in FY ${item.financialYear}. Remove the related invoices first.`
+        });
+      }
+    }
+
+    await InventoryItem.findOneAndDelete({ _id: id, userId: req.user.userId });
     res.json({ message: 'Inventory item deleted successfully' });
   } catch (error) {
     console.error('Error deleting inventory item:', error);

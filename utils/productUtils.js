@@ -15,7 +15,7 @@ function normalizeProductKey(description) {
     .trim()
     .toLowerCase()
     .replace(/\s+/g, '_')
-    .replace(/[^a-z0-9_]/g, '');
+    .replace(/[^a-z0-9._]/g, '');
 }
 
 /**

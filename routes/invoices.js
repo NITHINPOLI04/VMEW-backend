@@ -1,4 +1,5 @@
 const express = require('express');
+const mongoose = require('mongoose');
 const Invoice = require('../models/Invoice');
 const InventoryItem = require('../models/InventoryItem');
 const { authenticate } = require('../middleware/authenticate');
@@ -10,7 +11,6 @@ const { normalizeProductKey, computeStockStatus } = require('../utils/productUti
 const { invoiceBodySchema, paymentStatusSchema } = require('../validation/schemas');
 
 const router = express.Router();
-const PAYMENT_STATUSES = ['Payment Complete', 'Partially Paid', 'Unpaid'];
 
 // GET /api/invoices/:year
 router.get('/:year', authenticate, async (req, res) => {
@@ -58,7 +58,9 @@ router.get('/id/:id', authenticate, async (req, res) => {
 
 // POST /api/invoices
 router.post('/', authenticate, validate(invoiceBodySchema), financialValidationMiddleware, async (req, res) => {
+  const session = await mongoose.startSession();
   try {
+    session.startTransaction();
     const d = req.body;
     const financialYear = getFinancialYear(d.date);
     const grandTotal = d.grandTotal || 0;
@@ -68,28 +70,29 @@ router.post('/', authenticate, validate(invoiceBodySchema), financialValidationM
 
     // ─── Pre-validation: Check stock availability (Product only) ─────────
     if (isProductInvoice) {
-    const stockErrors = [];
-    for (const item of d.items) {
-      const productKey = normalizeProductKey(item.description);
-      if (!productKey) continue;
+      const stockErrors = [];
+      for (const item of d.items) {
+        const productKey = normalizeProductKey(item.description);
+        if (!productKey) continue;
 
-      const masterRecord = await InventoryItem.findOne({
-        userId: req.user.userId,
-        productKey,
-        financialYear,
-        transactionType: 'Purchase',
-      }).sort({ updatedAt: -1 });
+        const masterRecord = await InventoryItem.findOne({
+          userId: req.user.userId,
+          productKey,
+          financialYear,
+          transactionType: 'Purchase',
+        }).sort({ updatedAt: -1 }).session(session);
 
-      const currentStock = masterRecord ? (masterRecord.currentStock || 0) : 0;
-      if (currentStock < item.quantity) {
-        stockErrors.push(`Out of stock for ${item.description}. Available: ${currentStock}, Required: ${item.quantity}`);
+        const currentStock = masterRecord ? (masterRecord.currentStock || 0) : 0;
+        if (currentStock < item.quantity) {
+          stockErrors.push(`Out of stock for ${item.description}. Available: ${currentStock}, Required: ${item.quantity}`);
+        }
+      }
+
+      if (stockErrors.length > 0) {
+        await session.abortTransaction();
+        return res.status(400).json({ message: 'Stock validation failed', errors: stockErrors });
       }
     }
-
-    if (stockErrors.length > 0) {
-      return res.status(400).json({ message: 'Stock validation failed', errors: stockErrors });
-    }
-    } // end isProductInvoice pre-validation
 
     const newInvoice = new Invoice({
       invoiceNumber: d.invoiceNumber,
@@ -125,73 +128,74 @@ router.post('/', authenticate, validate(invoiceBodySchema), financialValidationM
       invoiceType,
     });
 
-    await newInvoice.save();
+    await newInvoice.save({ session });
 
     // ─── Stock deduction (Product invoices only) ─────────────────────────
     const stockWarnings = [];
     if (isProductInvoice) {
-    for (const item of d.items) {
-      const productKey = normalizeProductKey(item.description);
-      if (!productKey) continue;
+      for (const item of d.items) {
+        const productKey = normalizeProductKey(item.description);
+        if (!productKey) continue;
 
-      // Find the latest Purchase master record for this product
-      const masterRecord = await InventoryItem.findOne({
-        userId: req.user.userId,
-        productKey,
-        transactionType: 'Purchase',
-      }).sort({ updatedAt: -1 });
-
-      if (masterRecord) {
-        const previousStock = masterRecord.currentStock || 0;
-        const newStock = previousStock - item.quantity;
-        const newStatus = computeStockStatus(newStock);
-
-        // Deduct from master record
-        await InventoryItem.updateOne(
-          { _id: masterRecord._id },
-          { $set: { currentStock: newStock, status: newStatus } }
-        );
-
-        if (newStock < 0) {
-          stockWarnings.push({
-            description: item.description,
-            previousStock,
-            soldQty: item.quantity,
-            currentStock: newStock,
-          });
-        }
-      }
-
-      // Find existing Sales record or create a new one
-      const existingSales = await InventoryItem.findOne({
-        userId: req.user.userId,
-        productKey,
-        financialYear,
-        transactionType: 'Sales'
-      });
-
-      if (existingSales) {
-        await InventoryItem.updateOne(
-          { _id: existingSales._id },
-          { $inc: { quantity: item.quantity } }
-        );
-      } else {
-        await InventoryItem.create({
-          description: item.description,
-          hsnSacCode: item.hsnSacCode || '',
-          quantity: item.quantity,
-          unit: item.unit || 'Nos',
-          rate: item.rate || 0,
-          transactionType: 'Sales',
-          status: 'In Stock',
-          financialYear,
+        // C1 fix: Include financialYear in deduction query
+        const masterRecord = await InventoryItem.findOne({
           userId: req.user.userId,
           productKey,
-          currentStock: 0,
-        });
+          financialYear,
+          transactionType: 'Purchase',
+        }).sort({ updatedAt: -1 }).session(session);
+
+        if (masterRecord) {
+          const previousStock = masterRecord.currentStock || 0;
+          const newStock = previousStock - item.quantity;
+          const newStatus = computeStockStatus(newStock);
+
+          await InventoryItem.updateOne(
+            { _id: masterRecord._id },
+            { $set: { currentStock: newStock, status: newStatus } }
+          ).session(session);
+
+          if (newStock < 0) {
+            stockWarnings.push({
+              description: item.description,
+              previousStock,
+              soldQty: item.quantity,
+              currentStock: newStock,
+            });
+          }
+        }
+
+        // Find existing Sales record or create a new one
+        const existingSales = await InventoryItem.findOne({
+          userId: req.user.userId,
+          productKey,
+          financialYear,
+          transactionType: 'Sales'
+        }).session(session);
+
+        if (existingSales) {
+          await InventoryItem.updateOne(
+            { _id: existingSales._id },
+            { $inc: { quantity: item.quantity } }
+          ).session(session);
+        } else {
+          await InventoryItem.create([{
+            description: item.description,
+            hsnSacCode: item.hsnSacCode || '',
+            quantity: item.quantity,
+            unit: item.unit || 'Nos',
+            rate: item.rate || 0,
+            transactionType: 'Sales',
+            status: 'In Stock',
+            financialYear,
+            userId: req.user.userId,
+            productKey,
+          }], { session });
+        }
       }
     }
-    } // end isProductInvoice stock deduction
+
+    await session.commitTransaction();
 
     // Return invoice with optional stock warnings
     const response = newInvoice.toObject();
@@ -200,77 +204,93 @@ router.post('/', authenticate, validate(invoiceBodySchema), financialValidationM
     }
     res.status(201).json(response);
   } catch (error) {
+    if (session.inTransaction()) {
+      await session.abortTransaction();
+    }
     console.error('Error creating invoice:', error);
     res.status(500).json({ message: 'Internal server error' });
+  } finally {
+    session.endSession();
   }
 });
 
 // PUT /api/invoices/:id
+// C3 fix: Handles all type transitions (Product↔Service) correctly.
 router.put('/:id', authenticate, validate(invoiceBodySchema), financialValidationMiddleware, async (req, res) => {
+  const session = await mongoose.startSession();
   try {
+    session.startTransaction();
     const { id } = req.params;
     const d = req.body;
     const financialYear = getFinancialYear(d.date);
 
     // 1. Fetch Existing Invoice
-    const existingInvoice = await Invoice.findOne({ _id: id, userId: req.user.userId });
+    const existingInvoice = await Invoice.findOne({ _id: id, userId: req.user.userId }).session(session);
     if (!existingInvoice) {
+      await session.abortTransaction();
       return res.status(404).json({ message: 'Invoice not found' });
     }
 
     const oldFY = existingInvoice.financialYear;
     const newFY = financialYear;
-    const invoiceType = d.invoiceType || existingInvoice.invoiceType || 'Product';
-    const isProductInvoice = invoiceType === 'Product';
 
-    // 2. Compute Net Delta Map (Product invoices only)
-    let itemDeltas = {};
-    let stockErrors = [];
+    // C3: Detect BOTH old and new invoice types for proper delta computation
+    const oldType = existingInvoice.invoiceType || 'Product';
+    const newType = d.invoiceType || 'Product';
+    const oldIsProduct = oldType === 'Product';
+    const newIsProduct = newType === 'Product';
 
-    if (isProductInvoice) {
-    // +X means we need to deduct X more from stock (and add to sales)
-    // -Y means we need to restore Y to stock (and subtract from sales)
-    
-    // Subtract old items (reversal)
-    for (const item of existingInvoice.items) {
-      const pk = item.productKey || normalizeProductKey(item.description);
-      if (!pk) continue;
-      const key = `${oldFY}|${pk}`;
-      itemDeltas[key] = (itemDeltas[key] || 0) - item.quantity;
-    }
+    // 2. Compute Net Delta Map
+    // Only compute if at least one side involves inventory
+    const itemDeltas = {};
+    const stockErrors = [];
 
-    // Add new items (application)
-    for (const item of d.items) {
-      const pk = normalizeProductKey(item.description);
-      if (!pk) continue;
-      const key = `${newFY}|${pk}`;
-      itemDeltas[key] = (itemDeltas[key] || 0) + item.quantity;
-    }
-
-    // 3. Pre-validate stock availability for POSITIVE deltas
-    for (const key of Object.keys(itemDeltas)) {
-      const delta = itemDeltas[key];
-      if (delta > 0) {
-        const [fy, pk] = key.split('|');
-        const masterRecord = await InventoryItem.findOne({
-          userId: req.user.userId,
-          productKey: pk,
-          financialYear: fy,
-          transactionType: 'Purchase'
-        }).sort({ updatedAt: -1 });
-
-        const currentStock = masterRecord ? (masterRecord.currentStock || 0) : 0;
-        if (currentStock < delta) {
-          const itemDesc = d.items.find(i => normalizeProductKey(i.description) === pk)?.description || pk;
-          stockErrors.push(`Out of stock for ${itemDesc}. Available: ${currentStock}, Additional Required: ${delta}`);
-        }
+    // Reverse old items ONLY if old type was Product
+    if (oldIsProduct) {
+      for (const item of existingInvoice.items) {
+        const pk = item.productKey || normalizeProductKey(item.description);
+        if (!pk) continue;
+        const key = `${oldFY}|${pk}`;
+        itemDeltas[key] = (itemDeltas[key] || 0) - item.quantity;
       }
     }
 
-    if (stockErrors.length > 0) {
-      return res.status(400).json({ message: 'Stock validation failed', errors: stockErrors });
+    // Apply new items ONLY if new type is Product
+    if (newIsProduct) {
+      for (const item of d.items) {
+        const pk = normalizeProductKey(item.description);
+        if (!pk) continue;
+        const key = `${newFY}|${pk}`;
+        itemDeltas[key] = (itemDeltas[key] || 0) + item.quantity;
+      }
     }
-    } // end isProductInvoice delta + validation
+
+    // 3. Pre-validate stock for positive deltas
+    if (oldIsProduct || newIsProduct) {
+      for (const key of Object.keys(itemDeltas)) {
+        const delta = itemDeltas[key];
+        if (delta > 0) {
+          const [fy, pk] = key.split('|');
+          const masterRecord = await InventoryItem.findOne({
+            userId: req.user.userId,
+            productKey: pk,
+            financialYear: fy,
+            transactionType: 'Purchase'
+          }).sort({ updatedAt: -1 }).session(session);
+
+          const currentStock = masterRecord ? (masterRecord.currentStock || 0) : 0;
+          if (currentStock < delta) {
+            const itemDesc = d.items.find(i => normalizeProductKey(i.description) === pk)?.description || pk;
+            stockErrors.push(`Out of stock for ${itemDesc}. Available: ${currentStock}, Additional Required: ${delta}`);
+          }
+        }
+      }
+
+      if (stockErrors.length > 0) {
+        await session.abortTransaction();
+        return res.status(400).json({ message: 'Stock validation failed', errors: stockErrors });
+      }
+    }
 
     // 4. Execute the invoice update
     const updatedInvoice = await Invoice.findOneAndUpdate(
@@ -305,93 +325,97 @@ router.put('/:id', authenticate, validate(invoiceBodySchema), financialValidatio
         totalInWords: d.totalInWords,
         paymentStatus: d.paymentStatus,
         financialYear: newFY,
-        invoiceType,
+        invoiceType: newType,
       },
-      { new: true, runValidators: true }
+      { new: true, runValidators: true, session }
     );
 
-    // 5. Apply Stock Deltas to Inventory (Product invoices only)
+    // 5. Apply Stock Deltas to Inventory
     const stockWarnings = [];
-    if (isProductInvoice) {
-    for (const key of Object.keys(itemDeltas)) {
-      const delta = itemDeltas[key];
-      if (delta === 0) continue;
-      
-      const [fy, pk] = key.split('|');
+    if (oldIsProduct || newIsProduct) {
+      for (const key of Object.keys(itemDeltas)) {
+        const delta = itemDeltas[key];
+        if (delta === 0) continue;
+        
+        const [fy, pk] = key.split('|');
 
-      // Update Purchase (Stock)
-      const masterRecord = await InventoryItem.findOne({
-        userId: req.user.userId,
-        productKey: pk,
-        financialYear: fy,
-        transactionType: 'Purchase'
-      }).sort({ updatedAt: -1 });
+        // Update Purchase (Stock)
+        const masterRecord = await InventoryItem.findOne({
+          userId: req.user.userId,
+          productKey: pk,
+          financialYear: fy,
+          transactionType: 'Purchase'
+        }).sort({ updatedAt: -1 }).session(session);
 
-      if (masterRecord) {
-        const previousStock = masterRecord.currentStock || 0;
-        const newStock = previousStock - delta;
-        const newStatus = computeStockStatus(newStock);
+        if (masterRecord) {
+          const previousStock = masterRecord.currentStock || 0;
+          const newStock = previousStock - delta;
+          const newStatus = computeStockStatus(newStock);
 
-        await InventoryItem.updateOne(
-          { _id: masterRecord._id },
-          { $set: { currentStock: newStock, status: newStatus } }
-        );
+          await InventoryItem.updateOne(
+            { _id: masterRecord._id },
+            { $set: { currentStock: newStock, status: newStatus } }
+          ).session(session);
 
-        if (newStock < 0) {
-          stockWarnings.push({
-            description: pk,
-            previousStock,
-            soldQty: delta,
-            currentStock: newStock,
-          });
+          if (newStock < 0) {
+            stockWarnings.push({
+              description: pk,
+              previousStock,
+              soldQty: delta,
+              currentStock: newStock,
+            });
+          }
         }
-      }
 
-      // Update Sales (Consumption)
-      const salesRecord = await InventoryItem.findOne({
-        userId: req.user.userId,
-        productKey: pk,
-        financialYear: fy,
-        transactionType: 'Sales'
-      });
+        // Update Sales (Consumption)
+        const salesRecord = await InventoryItem.findOne({
+          userId: req.user.userId,
+          productKey: pk,
+          financialYear: fy,
+          transactionType: 'Sales'
+        }).session(session);
 
-      if (salesRecord) {
-        const newSalesQty = Math.max(0, salesRecord.quantity + delta);
-        await InventoryItem.updateOne(
-          { _id: salesRecord._id },
-          { $set: { quantity: newSalesQty } }
-        );
-      } else if (delta > 0) {
-        // Find the item details from the new request items to create a sales record
-        const itemDetails = d.items.find(i => normalizeProductKey(i.description) === pk);
-        if (itemDetails) {
-          await InventoryItem.create({
-            description: itemDetails.description,
-            hsnSacCode: itemDetails.hsnSacCode || '',
-            quantity: delta,
-            unit: itemDetails.unit || 'Nos',
-            rate: itemDetails.rate || 0,
-            transactionType: 'Sales',
-            status: 'In Stock',
-            financialYear: fy,
-            userId: req.user.userId,
-            productKey: pk,
-            currentStock: 0
-          });
+        if (salesRecord) {
+          const newSalesQty = Math.max(0, salesRecord.quantity + delta);
+          await InventoryItem.updateOne(
+            { _id: salesRecord._id },
+            { $set: { quantity: newSalesQty } }
+          ).session(session);
+        } else if (delta > 0) {
+          const itemDetails = d.items.find(i => normalizeProductKey(i.description) === pk);
+          if (itemDetails) {
+            await InventoryItem.create([{
+              description: itemDetails.description,
+              hsnSacCode: itemDetails.hsnSacCode || '',
+              quantity: delta,
+              unit: itemDetails.unit || 'Nos',
+              rate: itemDetails.rate || 0,
+              transactionType: 'Sales',
+              status: 'In Stock',
+              financialYear: fy,
+              userId: req.user.userId,
+              productKey: pk,
+            }], { session });
+          }
         }
       }
     }
-    } // end isProductInvoice stock application
+
+    await session.commitTransaction();
 
     const response = updatedInvoice.toObject();
     if (stockWarnings.length > 0) {
       response.stockWarnings = stockWarnings;
     }
-    
     res.json(response);
   } catch (error) {
+    if (session.inTransaction()) {
+      await session.abortTransaction();
+    }
     console.error('Error updating invoice:', error);
     res.status(500).json({ message: 'Internal server error' });
+  } finally {
+    session.endSession();
   }
 });
 
@@ -419,60 +443,70 @@ router.patch('/:id/payment-status', authenticate, validate(paymentStatusSchema),
 
 // DELETE /api/invoices/:id
 router.delete('/:id', authenticate, async (req, res) => {
+  const session = await mongoose.startSession();
   try {
+    session.startTransaction();
     const { id } = req.params;
-    const deletedInvoice = await Invoice.findOneAndDelete({ _id: id, userId: req.user.userId });
+    const deletedInvoice = await Invoice.findOneAndDelete({ _id: id, userId: req.user.userId }).session(session);
 
     if (!deletedInvoice) {
+      await session.abortTransaction();
       return res.status(404).json({ message: 'Invoice not found' });
     }
 
     // Restore stock and reduce sales (Product invoices only)
     const isProductInvoice = (deletedInvoice.invoiceType || 'Product') === 'Product';
     if (isProductInvoice) {
-    const financialYear = deletedInvoice.financialYear;
-    for (const item of deletedInvoice.items) {
-      const productKey = normalizeProductKey(item.description);
-      if (!productKey) continue;
+      const financialYear = deletedInvoice.financialYear;
+      for (const item of deletedInvoice.items) {
+        const productKey = normalizeProductKey(item.description);
+        if (!productKey) continue;
 
-      // Restore Purchase stock
-      const masterRecord = await InventoryItem.findOne({
-        userId: req.user.userId,
-        productKey,
-        financialYear,
-        transactionType: 'Purchase',
-      }).sort({ updatedAt: -1 });
+        // Restore Purchase stock
+        const masterRecord = await InventoryItem.findOne({
+          userId: req.user.userId,
+          productKey,
+          financialYear,
+          transactionType: 'Purchase',
+        }).sort({ updatedAt: -1 }).session(session);
 
-      if (masterRecord) {
-        const restoredStock = (masterRecord.currentStock || 0) + item.quantity;
-        const newStatus = computeStockStatus(restoredStock);
-        await InventoryItem.updateOne(
-          { _id: masterRecord._id },
-          { $set: { currentStock: restoredStock, status: newStatus } }
-        );
-      }
+        if (masterRecord) {
+          const restoredStock = (masterRecord.currentStock || 0) + item.quantity;
+          const newStatus = computeStockStatus(restoredStock);
+          await InventoryItem.updateOne(
+            { _id: masterRecord._id },
+            { $set: { currentStock: restoredStock, status: newStatus } }
+          ).session(session);
+        }
 
-      // Reduce Sales entry
-      const salesRecord = await InventoryItem.findOne({
-        userId: req.user.userId,
-        productKey,
-        financialYear,
-        transactionType: 'Sales',
-      });
+        // Reduce Sales entry
+        const salesRecord = await InventoryItem.findOne({
+          userId: req.user.userId,
+          productKey,
+          financialYear,
+          transactionType: 'Sales',
+        }).session(session);
 
-      if (salesRecord) {
-        const newSalesQty = Math.max(0, salesRecord.quantity - item.quantity);
-        await InventoryItem.updateOne(
-          { _id: salesRecord._id },
-          { $set: { quantity: newSalesQty } }
-        );
+        if (salesRecord) {
+          const newSalesQty = Math.max(0, salesRecord.quantity - item.quantity);
+          await InventoryItem.updateOne(
+            { _id: salesRecord._id },
+            { $set: { quantity: newSalesQty } }
+          ).session(session);
+        }
       }
     }
-    } // end isProductInvoice
+
+    await session.commitTransaction();
     res.json({ message: 'Invoice deleted successfully' });
   } catch (error) {
+    if (session.inTransaction()) {
+      await session.abortTransaction();
+    }
     console.error('Error deleting invoice:', error);
     res.status(500).json({ message: 'Internal server error' });
+  } finally {
+    session.endSession();
   }
 });
 
