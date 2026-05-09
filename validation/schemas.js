@@ -83,6 +83,7 @@ const invoiceBodySchema = z.object({
   totalInWords:  z.string().optional(),
   paymentStatus: z.enum(['Payment Complete', 'Partially Paid', 'Unpaid']).default('Unpaid'),
   invoiceType:   z.enum(['Product', 'Service']).default('Product'),
+  documentType:  z.enum(['invoice', 'credit_note', 'debit_note']).default('invoice'),
 });
 
 const paymentStatusSchema = z.object({

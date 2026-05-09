@@ -13,10 +13,19 @@ const { invoiceBodySchema, paymentStatusSchema } = require('../validation/schema
 const router = express.Router();
 
 // GET /api/invoices/:year
+// Optional query param: ?documentType=invoice|credit_note|debit_note
+// Without param, defaults to 'invoice' to preserve existing Bill Library behaviour.
 router.get('/:year', authenticate, async (req, res) => {
   try {
     const { year } = req.params;
-    const invoices = await Invoice.find({ financialYear: year, userId: req.user.userId }).sort({ invoiceNumber: 1 });
+    const { documentType } = req.query;
+    const filter = {
+      financialYear: year,
+      userId: req.user.userId,
+      // If no documentType param supplied, return only invoices (backward-compat).
+      documentType: documentType || 'invoice',
+    };
+    const invoices = await Invoice.find(filter).sort({ invoiceNumber: 1 });
     res.json(invoices);
   } catch (error) {
     console.error('Error fetching invoices:', error);
@@ -66,7 +75,9 @@ router.post('/', authenticate, validate(invoiceBodySchema), financialValidationM
     const grandTotal = d.grandTotal || 0;
     const totalInWords = convertToWords(grandTotal);
     const invoiceType = d.invoiceType || 'Product';
-    const isProductInvoice = invoiceType === 'Product';
+    const documentType = d.documentType || 'invoice';
+    // Only regular invoices with Product type affect inventory.
+    const isProductInvoice = invoiceType === 'Product' && documentType === 'invoice';
 
     // ─── Pre-validation: Check stock availability (Product only) ─────────
     if (isProductInvoice) {
@@ -126,6 +137,7 @@ router.post('/', authenticate, validate(invoiceBodySchema), financialValidationM
       financialYear,
       totalInWords,
       invoiceType,
+      documentType,
     });
 
     await newInvoice.save({ session });
@@ -237,8 +249,11 @@ router.put('/:id', authenticate, validate(invoiceBodySchema), financialValidatio
     // C3: Detect BOTH old and new invoice types for proper delta computation
     const oldType = existingInvoice.invoiceType || 'Product';
     const newType = d.invoiceType || 'Product';
-    const oldIsProduct = oldType === 'Product';
-    const newIsProduct = newType === 'Product';
+    const oldDocType = existingInvoice.documentType || 'invoice';
+    const newDocType = d.documentType || 'invoice';
+    // Inventory is only affected by regular product invoices — not CN/DN.
+    const oldIsProduct = oldType === 'Product' && oldDocType === 'invoice';
+    const newIsProduct = newType === 'Product' && newDocType === 'invoice';
 
     // 2. Compute Net Delta Map
     // Only compute if at least one side involves inventory
@@ -326,6 +341,7 @@ router.put('/:id', authenticate, validate(invoiceBodySchema), financialValidatio
         paymentStatus: d.paymentStatus,
         financialYear: newFY,
         invoiceType: newType,
+        documentType: newDocType,
       },
       { new: true, runValidators: true, session }
     );
