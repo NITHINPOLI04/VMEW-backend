@@ -14,17 +14,30 @@ const router = express.Router();
 
 // GET /api/invoices/:year
 // Optional query param: ?documentType=invoice|credit_note|debit_note
-// Without param, defaults to 'invoice' to preserve existing Bill Library behaviour.
+// Legacy documents (pre-migration) have no documentType field — treated as 'invoice'.
 router.get('/:year', authenticate, async (req, res) => {
   try {
     const { year } = req.params;
-    const { documentType } = req.query;
-    const filter = {
-      financialYear: year,
-      userId: req.user.userId,
-      // If no documentType param supplied, return only invoices (backward-compat).
-      documentType: documentType || 'invoice',
-    };
+    const { documentType = 'invoice' } = req.query;
+
+    const baseFilter = { financialYear: year, userId: req.user.userId };
+
+    let filter;
+    if (documentType === 'invoice') {
+      // Include explicitly-tagged invoices AND legacy docs without the field.
+      filter = {
+        ...baseFilter,
+        $or: [
+          { documentType: 'invoice' },
+          { documentType: { $exists: false } },
+          { documentType: null },
+        ],
+      };
+    } else {
+      // credit_note / debit_note — newly created, field always set.
+      filter = { ...baseFilter, documentType };
+    }
+
     const invoices = await Invoice.find(filter).sort({ invoiceNumber: 1 });
     res.json(invoices);
   } catch (error) {
