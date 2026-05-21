@@ -160,23 +160,33 @@ router.put('/:id', authenticate, validate(inventoryBodySchema), async (req, res)
       });
     }
 
+    const oldProductKey = existingItem.productKey;
     const productKey = normalizeProductKey(d.description);
-
-    // Calculate quantity difference
-    const diff = d.quantity - existingItem.quantity;
 
     existingItem.description = d.description;
     existingItem.hsnSacCode = d.hsnSacCode;
-    existingItem.quantity = d.quantity;
     existingItem.unit = d.unit;
     existingItem.rate = d.rate;
     existingItem.financialYear = d.financialYear;
     existingItem.productKey = productKey;
 
     if (existingItem.transactionType === 'Purchase') {
-      existingItem.currentStock = (existingItem.currentStock || 0) + diff;
+      // For Purchase records, the quantity field in the frontend form represents the current stock.
+      // So we adjust the total quantity by the difference in stock.
+      const stockDiff = d.quantity - (existingItem.currentStock || 0);
+      existingItem.quantity = existingItem.quantity + stockDiff;
+      existingItem.currentStock = d.quantity;
       existingItem.status = computeStockStatus(existingItem.currentStock);
+
+      // Automatically sync description, HSN code, unit, and productKey to corresponding Sales records
+      if (oldProductKey) {
+        await InventoryItem.updateMany(
+          { userId: req.user.userId, productKey: oldProductKey, financialYear: existingItem.financialYear, transactionType: 'Sales' },
+          { $set: { productKey, description: d.description, hsnSacCode: d.hsnSacCode, unit: d.unit } }
+        );
+      }
     } else {
+      existingItem.quantity = d.quantity;
       existingItem.status = d.status || 'In Stock';
     }
 
