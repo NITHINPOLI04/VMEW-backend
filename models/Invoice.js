@@ -49,7 +49,9 @@ const invoiceSchema = new mongoose.Schema({
   financialYear: { type: String, required: true },
   invoiceType: { type: String, enum: ['Product', 'Service'], default: 'Product' },
   documentType: { type: String, enum: ['invoice', 'credit_note', 'debit_note'], default: 'invoice' },
-  receivedAmount: { type: Number, default: 0 }
+  receivedAmount: { type: Number, default: 0 },
+  linkedInvoiceId: { type: mongoose.Schema.Types.ObjectId, ref: 'Invoice' },
+  reason: { type: String, trim: true }
 }, { timestamps: true });
 
 invoiceSchema.index({ userId: 1, financialYear: 1 });

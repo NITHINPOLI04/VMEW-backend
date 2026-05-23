@@ -84,6 +84,8 @@ const invoiceBodySchema = z.object({
   paymentStatus: z.enum(['Payment Complete', 'Partially Paid', 'Unpaid']).default('Unpaid'),
   invoiceType:   z.enum(['Product', 'Service']).default('Product'),
   documentType:  z.enum(['invoice', 'credit_note', 'debit_note']).default('invoice'),
+  linkedInvoiceId: z.string().optional().nullable(),
+  reason:        z.string().max(200).optional().nullable(),
 });
 
 const paymentStatusSchema = z.object({

@@ -107,11 +107,12 @@ router.post('/', authenticate, validate(invoiceBodySchema), financialValidationM
     const totalInWords = convertToWords(grandTotal);
     const invoiceType = d.invoiceType || 'Product';
     const documentType = d.documentType || 'invoice';
-    // Only regular invoices with Product type affect inventory.
-    const isProductInvoice = invoiceType === 'Product' && documentType === 'invoice';
+    // Product type documents affect inventory.
+    const affectsInventory = invoiceType === 'Product';
+    const deductsStock = affectsInventory && (documentType === 'invoice' || documentType === 'debit_note');
 
-    // ─── Pre-validation: Check stock availability (Product only) ─────────
-    if (isProductInvoice) {
+    // ─── Pre-validation: Check stock availability (Product only, when deducting stock) ─────────
+    if (deductsStock) {
       const stockErrors = [];
       for (const item of d.items) {
         const productKey = normalizeProductKey(item.description);
@@ -169,18 +170,20 @@ router.post('/', authenticate, validate(invoiceBodySchema), financialValidationM
       totalInWords,
       invoiceType,
       documentType,
+      linkedInvoiceId: d.linkedInvoiceId || null,
+      reason: d.reason || null,
     });
 
     await newInvoice.save({ session });
 
-    // ─── Stock deduction (Product invoices only) ─────────────────────────
+    // ─── Inventory Stock adjustments ─────────────────────────
     const stockWarnings = [];
-    if (isProductInvoice) {
+    if (affectsInventory) {
+      const multiplier = documentType === 'credit_note' ? 1 : -1;
       for (const item of d.items) {
         const productKey = normalizeProductKey(item.description);
         if (!productKey) continue;
 
-        // C1 fix: Include financialYear in deduction query
         const masterRecord = await InventoryItem.findOne({
           userId: req.user.userId,
           productKey,
@@ -190,7 +193,7 @@ router.post('/', authenticate, validate(invoiceBodySchema), financialValidationM
 
         if (masterRecord) {
           const previousStock = masterRecord.currentStock || 0;
-          const newStock = previousStock - item.quantity;
+          const newStock = previousStock + (multiplier * item.quantity);
           const newStatus = computeStockStatus(newStock);
 
           await InventoryItem.updateOne(
@@ -198,7 +201,7 @@ router.post('/', authenticate, validate(invoiceBodySchema), financialValidationM
             { $set: { currentStock: newStock, status: newStatus } }
           ).session(session);
 
-          if (newStock < 0) {
+          if (newStock < 0 && multiplier < 0) {
             stockWarnings.push({
               description: item.description,
               previousStock,
@@ -216,16 +219,18 @@ router.post('/', authenticate, validate(invoiceBodySchema), financialValidationM
           transactionType: 'Sales'
         }).session(session);
 
+        const salesChange = -multiplier * item.quantity;
         if (existingSales) {
+          const newSalesQty = Math.max(0, existingSales.quantity + salesChange);
           await InventoryItem.updateOne(
             { _id: existingSales._id },
-            { $inc: { quantity: item.quantity } }
+            { $set: { quantity: newSalesQty } }
           ).session(session);
-        } else {
+        } else if (salesChange > 0) {
           await InventoryItem.create([{
             description: item.description,
             hsnSacCode: item.hsnSacCode || '',
-            quantity: item.quantity,
+            quantity: salesChange,
             unit: item.unit || 'Nos',
             rate: item.rate || 0,
             transactionType: 'Sales',
@@ -285,40 +290,48 @@ router.put('/:id', authenticate, validate(invoiceBodySchema), financialValidatio
     const newType = d.invoiceType || 'Product';
     const oldDocType = existingInvoice.documentType || 'invoice';
     const newDocType = d.documentType || 'invoice';
-    // Inventory is only affected by regular product invoices — not CN/DN.
-    const oldIsProduct = oldType === 'Product' && oldDocType === 'invoice';
-    const newIsProduct = newType === 'Product' && newDocType === 'invoice';
+    // C3: Detect BOTH old and new document types/multipliers for inventory stock impact
+    const oldAffectsInventory = oldType === 'Product';
+    const newAffectsInventory = newType === 'Product';
+    const oldMultiplier = oldDocType === 'credit_note' ? 1 : -1;
+    const newMultiplier = newDocType === 'credit_note' ? 1 : -1;
 
-    // 2. Compute Net Delta Map
-    // Only compute if at least one side involves inventory
-    const itemDeltas = {};
+    // 2. Compute Net Delta Map for Stock and Sales
+    const stockDeltas = {};
+    const salesDeltas = {};
     const stockErrors = [];
 
-    // Reverse old items ONLY if old type was Product
-    if (oldIsProduct) {
+    // Reverse old items ONLY if old document affected inventory
+    if (oldAffectsInventory) {
       for (const item of existingInvoice.items) {
         const pk = item.productKey || normalizeProductKey(item.description);
         if (!pk) continue;
         const key = `${oldFY}|${pk}`;
-        itemDeltas[key] = (itemDeltas[key] || 0) - item.quantity;
+        const oldStockImpact = oldMultiplier * item.quantity;
+        const oldSalesImpact = -oldMultiplier * item.quantity;
+        stockDeltas[key] = (stockDeltas[key] || 0) - oldStockImpact;
+        salesDeltas[key] = (salesDeltas[key] || 0) - oldSalesImpact;
       }
     }
 
-    // Apply new items ONLY if new type is Product
-    if (newIsProduct) {
+    // Apply new items ONLY if new document affects inventory
+    if (newAffectsInventory) {
       for (const item of d.items) {
         const pk = normalizeProductKey(item.description);
         if (!pk) continue;
         const key = `${newFY}|${pk}`;
-        itemDeltas[key] = (itemDeltas[key] || 0) + item.quantity;
+        const newStockImpact = newMultiplier * item.quantity;
+        const newSalesImpact = -newMultiplier * item.quantity;
+        stockDeltas[key] = (stockDeltas[key] || 0) + newStockImpact;
+        salesDeltas[key] = (salesDeltas[key] || 0) + newSalesImpact;
       }
     }
 
-    // 3. Pre-validate stock for positive deltas
-    if (oldIsProduct || newIsProduct) {
-      for (const key of Object.keys(itemDeltas)) {
-        const delta = itemDeltas[key];
-        if (delta > 0) {
+    // 3. Pre-validate stock for negative stock deltas (stock is being reduced)
+    if (oldAffectsInventory || newAffectsInventory) {
+      for (const key of Object.keys(stockDeltas)) {
+        const delta = stockDeltas[key];
+        if (delta < 0) {
           const [fy, pk] = key.split('|');
           const masterRecord = await InventoryItem.findOne({
             userId: req.user.userId,
@@ -328,9 +341,10 @@ router.put('/:id', authenticate, validate(invoiceBodySchema), financialValidatio
           }).sort({ updatedAt: -1 }).session(session);
 
           const currentStock = masterRecord ? (masterRecord.currentStock || 0) : 0;
-          if (currentStock < delta) {
+          const requiredQty = Math.abs(delta);
+          if (currentStock < requiredQty) {
             const itemDesc = d.items.find(i => normalizeProductKey(i.description) === pk)?.description || pk;
-            stockErrors.push(`Out of stock for ${itemDesc}. Available: ${currentStock}, Additional Required: ${delta}`);
+            stockErrors.push(`Out of stock for ${itemDesc}. Available: ${currentStock}, Additional Required: ${requiredQty}`);
           }
         }
       }
@@ -376,20 +390,22 @@ router.put('/:id', authenticate, validate(invoiceBodySchema), financialValidatio
         financialYear: newFY,
         invoiceType: newType,
         documentType: newDocType,
+        linkedInvoiceId: d.linkedInvoiceId || null,
+        reason: d.reason || null,
       },
       { new: true, runValidators: true, session }
     );
 
     // 5. Apply Stock Deltas to Inventory
     const stockWarnings = [];
-    if (oldIsProduct || newIsProduct) {
-      for (const key of Object.keys(itemDeltas)) {
-        const delta = itemDeltas[key];
+    if (oldAffectsInventory || newAffectsInventory) {
+      // Apply Purchase stock changes
+      for (const key of Object.keys(stockDeltas)) {
+        const delta = stockDeltas[key];
         if (delta === 0) continue;
         
         const [fy, pk] = key.split('|');
 
-        // Update Purchase (Stock)
         const masterRecord = await InventoryItem.findOne({
           userId: req.user.userId,
           productKey: pk,
@@ -399,7 +415,7 @@ router.put('/:id', authenticate, validate(invoiceBodySchema), financialValidatio
 
         if (masterRecord) {
           const previousStock = masterRecord.currentStock || 0;
-          const newStock = previousStock - delta;
+          const newStock = previousStock + delta;
           const newStatus = computeStockStatus(newStock);
 
           await InventoryItem.updateOne(
@@ -407,17 +423,24 @@ router.put('/:id', authenticate, validate(invoiceBodySchema), financialValidatio
             { $set: { currentStock: newStock, status: newStatus } }
           ).session(session);
 
-          if (newStock < 0) {
+          if (newStock < 0 && delta < 0) {
             stockWarnings.push({
               description: pk,
               previousStock,
-              soldQty: delta,
+              soldQty: Math.abs(delta),
               currentStock: newStock,
             });
           }
         }
+      }
 
-        // Update Sales (Consumption)
+      // Apply Sales consumption changes
+      for (const key of Object.keys(salesDeltas)) {
+        const delta = salesDeltas[key];
+        if (delta === 0) continue;
+
+        const [fy, pk] = key.split('|');
+
         const salesRecord = await InventoryItem.findOne({
           userId: req.user.userId,
           productKey: pk,
@@ -512,16 +535,18 @@ router.delete('/:id', authenticate, async (req, res) => {
       return res.status(404).json({ message: 'Invoice not found' });
     }
 
-    // Restore stock and reduce sales (Product invoices only, NOT credit/debit notes)
-    const isProductInvoice = (deletedInvoice.invoiceType || 'Product') === 'Product'
-      && (deletedInvoice.documentType || 'invoice') === 'invoice';
-    if (isProductInvoice) {
+    // Restore stock and adjust sales accordingly (Product type documents only)
+    const affectsInventory = (deletedInvoice.invoiceType || 'Product') === 'Product';
+    if (affectsInventory) {
+      const docType = deletedInvoice.documentType || 'invoice';
+      const multiplier = docType === 'credit_note' ? -1 : 1;
       const financialYear = deletedInvoice.financialYear;
       for (const item of deletedInvoice.items) {
         const productKey = normalizeProductKey(item.description);
         if (!productKey) continue;
 
-        // Restore Purchase stock
+        // Purchase stock: Invoice/DN deduction gets added back (+item.quantity)
+        // CN return gets subtracted back (-item.quantity)
         const masterRecord = await InventoryItem.findOne({
           userId: req.user.userId,
           productKey,
@@ -530,7 +555,7 @@ router.delete('/:id', authenticate, async (req, res) => {
         }).sort({ updatedAt: -1 }).session(session);
 
         if (masterRecord) {
-          const restoredStock = (masterRecord.currentStock || 0) + item.quantity;
+          const restoredStock = (masterRecord.currentStock || 0) + (multiplier * item.quantity);
           const newStatus = computeStockStatus(restoredStock);
           await InventoryItem.updateOne(
             { _id: masterRecord._id },
@@ -538,7 +563,8 @@ router.delete('/:id', authenticate, async (req, res) => {
           ).session(session);
         }
 
-        // Reduce Sales entry
+        // Sales entry: Invoice/DN sales gets reduced (-item.quantity)
+        // CN return gets added back (+item.quantity)
         const salesRecord = await InventoryItem.findOne({
           userId: req.user.userId,
           productKey,
@@ -547,7 +573,7 @@ router.delete('/:id', authenticate, async (req, res) => {
         }).session(session);
 
         if (salesRecord) {
-          const newSalesQty = Math.max(0, salesRecord.quantity - item.quantity);
+          const newSalesQty = Math.max(0, salesRecord.quantity - (multiplier * item.quantity));
           await InventoryItem.updateOne(
             { _id: salesRecord._id },
             { $set: { quantity: newSalesQty } }
@@ -566,6 +592,24 @@ router.delete('/:id', authenticate, async (req, res) => {
     res.status(500).json({ message: 'Internal server error' });
   } finally {
     session.endSession();
+  }
+});
+
+// GET /api/invoices/:invoiceId/notes
+router.get('/:invoiceId/notes', authenticate, async (req, res) => {
+  try {
+    const { invoiceId } = req.params;
+    if (!mongoose.Types.ObjectId.isValid(invoiceId)) {
+      return res.status(400).json({ message: 'Invalid invoice ID' });
+    }
+    const notes = await Invoice.find({
+      userId: req.user.userId,
+      linkedInvoiceId: invoiceId
+    }).select('_id invoiceNumber documentType grandTotal date reason');
+    res.json(notes);
+  } catch (error) {
+    console.error('Error fetching linked notes:', error);
+    res.status(500).json([]);
   }
 });
 
