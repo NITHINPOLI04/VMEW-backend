@@ -12,7 +12,27 @@ const router = express.Router();
 router.get('/:year', authenticate, async (req, res) => {
   try {
     const { year } = req.params;
-    const quotations = await Quotation.find({ financialYear: year, userId: req.user.userId }).sort({ quotationNumber: 1 });
+    const filter = { financialYear: year, userId: req.user.userId };
+
+    const page = parseInt(req.query.page);
+    const limit = parseInt(req.query.limit);
+
+    if (!isNaN(page) && !isNaN(limit) && page > 0 && limit > 0) {
+      const skip = (page - 1) * limit;
+      const [docs, totalDocs] = await Promise.all([
+        Quotation.find(filter).sort({ quotationNumber: 1 }).skip(skip).limit(limit),
+        Quotation.countDocuments(filter),
+      ]);
+      return res.json({
+        docs,
+        totalDocs,
+        totalPages: Math.ceil(totalDocs / limit),
+        page,
+        limit,
+      });
+    }
+
+    const quotations = await Quotation.find(filter).sort({ quotationNumber: 1 });
     res.json(quotations);
   } catch (error) {
     console.error('Error fetching quotations:', error);

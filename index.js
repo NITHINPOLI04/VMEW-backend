@@ -20,6 +20,7 @@ const mongoose = require('mongoose');
 const dotenv = require('dotenv');
 const cors = require('cors');
 const morgan = require('morgan');
+const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 const path = require('path');
 
@@ -40,9 +41,16 @@ if (!MONGODB_URI) {
 const app = express();
 const PORT = process.env.PORT || 5000;
 
+// ─── Security headers ─────────────────────────────────────────────────────────
+app.use(helmet());
+
 // ─── CORS ──────────────────────────────────────────────────────────────────────
+const defaultOrigins = ['https://vmew.onrender.com', 'http://localhost:5173', 'http://localhost:5174'];
+const corsOrigins = process.env.CORS_ORIGINS
+  ? process.env.CORS_ORIGINS.split(',').map(s => s.trim())
+  : defaultOrigins;
 const corsOptions = {
-  origin: ['https://vmew.onrender.com', 'http://localhost:5173', 'http://localhost:5174'],
+  origin: corsOrigins,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
   credentials: true,
@@ -51,10 +59,10 @@ const corsOptions = {
 app.use(cors(corsOptions));
 
 // ─── Body parsing & logging ────────────────────────────────────────────────────
-app.use(express.json());
-app.use(morgan('dev'));
+app.use(express.json({ limit: '1mb' }));
+app.use(morgan(process.env.NODE_ENV === 'production' ? 'combined' : 'dev'));
 
-// ─── Rate limiting (auth routes only) ─────────────────────────────────────────
+// ─── Rate limiting ────────────────────────────────────────────────────────────
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
   max: 15,
@@ -63,6 +71,22 @@ const authLimiter = rateLimit({
   message: { message: 'Too many requests, please try again later.' },
 });
 app.use('/api/auth', authLimiter);
+
+const apiLimiter = rateLimit({
+  windowMs: 1 * 60 * 1000, // 1 minute
+  max: 100,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { message: 'Too many requests, please slow down.' },
+});
+app.use('/api/invoices', apiLimiter);
+app.use('/api/dc', apiLimiter);
+app.use('/api/quotation', apiLimiter);
+app.use('/api/templates', apiLimiter);
+app.use('/api/inventory', apiLimiter);
+app.use('/api/suppliers', apiLimiter);
+app.use('/api/customers', apiLimiter);
+app.use('/api/po', apiLimiter);
 
 // ─── MongoDB connection ────────────────────────────────────────────────────────
 mongoose.connect(MONGODB_URI)

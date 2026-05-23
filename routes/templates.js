@@ -1,9 +1,15 @@
 const express = require('express');
 const Template = require('../models/Template');
 const { authenticate } = require('../middleware/authenticate');
+const { letterheadSchema, defaultInfoSchema } = require('../validation/schemas');
 
 const router = express.Router();
 const TEMPLATE_TYPES = ['letterhead', 'defaultInfo'];
+
+const templateSchemaMap = {
+  letterhead: letterheadSchema,
+  defaultInfo: defaultInfoSchema,
+};
 
 // GET /api/templates/:type
 router.get('/:type', authenticate, async (req, res) => {
@@ -24,10 +30,21 @@ router.get('/:type', authenticate, async (req, res) => {
 router.put('/:type', authenticate, async (req, res) => {
   try {
     const { type } = req.params;
-    const data = req.body;
     if (!TEMPLATE_TYPES.includes(type)) {
       return res.status(400).json({ message: 'Invalid template type' });
     }
+
+    // Validate body against the correct schema for this template type
+    const schema = templateSchemaMap[type];
+    const parseResult = schema.safeParse(req.body);
+    if (!parseResult.success) {
+      return res.status(400).json({
+        message: 'Validation failed',
+        errors: parseResult.error.issues.map(i => i.message),
+      });
+    }
+    const data = parseResult.data;
+
     const updatedTemplate = await Template.findOneAndUpdate(
       { type, userId: req.user.userId },
       { type, data, userId: req.user.userId },

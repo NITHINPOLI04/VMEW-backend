@@ -43,5 +43,6 @@ const quotationSchema = new mongoose.Schema({
 }, { timestamps: true });
 
 quotationSchema.index({ userId: 1, financialYear: 1 });
+quotationSchema.index({ userId: 1, financialYear: 1, quotationNumber: 1 }, { unique: true });
 
 module.exports = mongoose.model('Quotation', quotationSchema);

@@ -7,7 +7,6 @@ const { signupSchema, loginSchema } = require('../validation/schemas');
 
 const router = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET;
-const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 // POST /api/auth/signup
 router.post('/signup', validate(signupSchema), async (req, res) => {

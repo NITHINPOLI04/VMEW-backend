@@ -22,5 +22,6 @@ const deliveryChallanSchema = new mongoose.Schema({
 }, { timestamps: true });
 
 deliveryChallanSchema.index({ userId: 1, financialYear: 1 });
+deliveryChallanSchema.index({ userId: 1, financialYear: 1, dcNumber: 1 }, { unique: true });
 
 module.exports = mongoose.model('DeliveryChallan', deliveryChallanSchema);

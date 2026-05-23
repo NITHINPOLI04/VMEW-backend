@@ -48,11 +48,13 @@ const invoiceSchema = new mongoose.Schema({
   },
   financialYear: { type: String, required: true },
   invoiceType: { type: String, enum: ['Product', 'Service'], default: 'Product' },
-  documentType: { type: String, enum: ['invoice', 'credit_note', 'debit_note'], default: 'invoice' }
+  documentType: { type: String, enum: ['invoice', 'credit_note', 'debit_note'], default: 'invoice' },
+  receivedAmount: { type: Number, default: 0 }
 }, { timestamps: true });
 
 invoiceSchema.index({ userId: 1, financialYear: 1 });
 invoiceSchema.index({ userId: 1, financialYear: 1, documentType: 1 });
 invoiceSchema.index({ userId: 1, financialYear: 1, "items.productKey": 1 });
+invoiceSchema.index({ userId: 1, financialYear: 1, invoiceNumber: 1, documentType: 1 }, { unique: true });
 
 module.exports = mongoose.model('Invoice', invoiceSchema);

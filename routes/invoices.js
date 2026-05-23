@@ -38,6 +38,24 @@ router.get('/:year', authenticate, async (req, res) => {
       filter = { ...baseFilter, documentType };
     }
 
+    const page = parseInt(req.query.page);
+    const limit = parseInt(req.query.limit);
+
+    if (!isNaN(page) && !isNaN(limit) && page > 0 && limit > 0) {
+      const skip = (page - 1) * limit;
+      const [docs, totalDocs] = await Promise.all([
+        Invoice.find(filter).sort({ invoiceNumber: 1 }).skip(skip).limit(limit),
+        Invoice.countDocuments(filter),
+      ]);
+      return res.json({
+        docs,
+        totalDocs,
+        totalPages: Math.ceil(totalDocs / limit),
+        page,
+        limit,
+      });
+    }
+
     const invoices = await Invoice.find(filter).sort({ invoiceNumber: 1 });
     res.json(invoices);
   } catch (error) {
@@ -231,6 +249,9 @@ router.post('/', authenticate, validate(invoiceBodySchema), financialValidationM
   } catch (error) {
     if (session.inTransaction()) {
       await session.abortTransaction();
+    }
+    if (error.code === 11000) {
+      return res.status(409).json({ message: `An invoice with this number already exists for this financial year.` });
     }
     console.error('Error creating invoice:', error);
     res.status(500).json({ message: 'Internal server error' });
@@ -452,11 +473,19 @@ router.put('/:id', authenticate, validate(invoiceBodySchema), financialValidatio
 router.patch('/:id/payment-status', authenticate, validate(paymentStatusSchema), async (req, res) => {
   try {
     const { id } = req.params;
-    const { status } = req.body; // already validated by Zod
+    const { status, receivedAmount } = req.body;
+
+    const updateData = { paymentStatus: status };
+    if (receivedAmount !== undefined && typeof receivedAmount === 'number') {
+      updateData.receivedAmount = Math.max(0, receivedAmount);
+    }
+    if (status !== 'Partially Paid') {
+      updateData.receivedAmount = 0;
+    }
 
     const updatedInvoice = await Invoice.findOneAndUpdate(
       { _id: id, userId: req.user.userId },
-      { paymentStatus: status },
+      updateData,
       { new: true }
     );
 
@@ -483,8 +512,9 @@ router.delete('/:id', authenticate, async (req, res) => {
       return res.status(404).json({ message: 'Invoice not found' });
     }
 
-    // Restore stock and reduce sales (Product invoices only)
-    const isProductInvoice = (deletedInvoice.invoiceType || 'Product') === 'Product';
+    // Restore stock and reduce sales (Product invoices only, NOT credit/debit notes)
+    const isProductInvoice = (deletedInvoice.invoiceType || 'Product') === 'Product'
+      && (deletedInvoice.documentType || 'invoice') === 'invoice';
     if (isProductInvoice) {
       const financialYear = deletedInvoice.financialYear;
       for (const item of deletedInvoice.items) {

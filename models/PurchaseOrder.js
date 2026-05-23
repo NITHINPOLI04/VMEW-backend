@@ -40,5 +40,6 @@ const purchaseOrderSchema = new mongoose.Schema({
 }, { timestamps: true });
 
 purchaseOrderSchema.index({ userId: 1, financialYear: 1 });
+purchaseOrderSchema.index({ userId: 1, financialYear: 1, poNumber: 1 }, { unique: true });
 
 module.exports = mongoose.model('PurchaseOrder', purchaseOrderSchema);

@@ -11,7 +11,27 @@ const router = express.Router();
 router.get('/:year', authenticate, async (req, res) => {
   try {
     const { year } = req.params;
-    const dcs = await DeliveryChallan.find({ financialYear: year, userId: req.user.userId }).sort({ dcNumber: 1 });
+    const filter = { financialYear: year, userId: req.user.userId };
+
+    const page = parseInt(req.query.page);
+    const limit = parseInt(req.query.limit);
+
+    if (!isNaN(page) && !isNaN(limit) && page > 0 && limit > 0) {
+      const skip = (page - 1) * limit;
+      const [docs, totalDocs] = await Promise.all([
+        DeliveryChallan.find(filter).sort({ dcNumber: 1 }).skip(skip).limit(limit),
+        DeliveryChallan.countDocuments(filter),
+      ]);
+      return res.json({
+        docs,
+        totalDocs,
+        totalPages: Math.ceil(totalDocs / limit),
+        page,
+        limit,
+      });
+    }
+
+    const dcs = await DeliveryChallan.find(filter).sort({ dcNumber: 1 });
     res.json(dcs);
   } catch (error) {
     console.error('Error fetching delivery challans:', error);
