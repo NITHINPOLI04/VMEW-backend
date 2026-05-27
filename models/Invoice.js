@@ -51,6 +51,7 @@ const invoiceSchema = new mongoose.Schema({
   documentType: { type: String, enum: ['invoice', 'credit_note', 'debit_note'], default: 'invoice' },
   receivedAmount: { type: Number, default: 0 },
   linkedInvoiceId: { type: mongoose.Schema.Types.ObjectId, ref: 'Invoice' },
+  linkedInvoiceNumber: { type: String, trim: true },
   reason: { type: String, trim: true }
 }, { timestamps: true });
 

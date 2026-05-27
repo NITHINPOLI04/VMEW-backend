@@ -171,6 +171,7 @@ router.post('/', authenticate, validate(invoiceBodySchema), financialValidationM
       invoiceType,
       documentType,
       linkedInvoiceId: d.linkedInvoiceId || null,
+      linkedInvoiceNumber: d.linkedInvoiceNumber || null,
       reason: d.reason || null,
     });
 
@@ -391,6 +392,7 @@ router.put('/:id', authenticate, validate(invoiceBodySchema), financialValidatio
         invoiceType: newType,
         documentType: newDocType,
         linkedInvoiceId: d.linkedInvoiceId || null,
+        linkedInvoiceNumber: d.linkedInvoiceNumber || null,
         reason: d.reason || null,
       },
       { new: true, runValidators: true, session }

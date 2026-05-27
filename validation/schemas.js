@@ -85,6 +85,7 @@ const invoiceBodySchema = z.object({
   invoiceType:   z.enum(['Product', 'Service']).default('Product'),
   documentType:  z.enum(['invoice', 'credit_note', 'debit_note']).default('invoice'),
   linkedInvoiceId: z.string().optional().nullable(),
+  linkedInvoiceNumber: z.string().optional().nullable(),
   reason:        z.string().max(200).optional().nullable(),
 });
 
