@@ -12,6 +12,159 @@ const { invoiceBodySchema, paymentStatusSchema } = require('../validation/schema
 
 const router = express.Router();
 
+// ─── HSN Summary Calculator Endpoints ─────────────────────────────────────────
+// These MUST be defined before /:year to avoid route parameter collision.
+
+// GET /api/invoices/hsn-summary?year=2026-2027&from=2026-04-01&to=2027-03-31
+router.get('/hsn-summary', authenticate, async (req, res) => {
+  try {
+    const { year, from, to } = req.query;
+    if (!year || !from || !to) {
+      return res.status(400).json({ message: 'year, from, and to query params are required' });
+    }
+
+    const fromDate = new Date(from);
+    const toDate = new Date(to);
+    toDate.setHours(23, 59, 59, 999);
+
+    const matchStage = {
+      userId: new mongoose.Types.ObjectId(req.user.userId),
+      financialYear: year,
+      date: { $gte: fromDate, $lte: toDate },
+      $or: [
+        { documentType: 'invoice' },
+        { documentType: { $exists: false } },
+        { documentType: null },
+      ],
+    };
+
+    const pipeline = [
+      { $match: matchStage },
+      { $unwind: '$items' },
+      {
+        $group: {
+          _id: {
+            hsnSacCode: '$items.hsnSacCode',
+            unit: '$items.unit',
+            taxType: '$taxType',
+          },
+          description: { $first: '$items.description' },
+          totalQty: { $sum: '$items.quantity' },
+          totalTaxableAmt: { $sum: '$items.taxableAmount' },
+          totalSgstAmt: { $sum: { $ifNull: ['$items.sgstAmount', 0] } },
+          totalCgstAmt: { $sum: { $ifNull: ['$items.cgstAmount', 0] } },
+          totalIgstAmt: { $sum: { $ifNull: ['$items.igstAmount', 0] } },
+          invoiceNumbers: { $addToSet: '$invoiceNumber' },
+        },
+      },
+      {
+        $project: {
+          _id: 0,
+          hsnSacCode: '$_id.hsnSacCode',
+          unit: '$_id.unit',
+          taxType: '$_id.taxType',
+          description: 1,
+          totalQty: 1,
+          totalTaxableAmt: { $round: ['$totalTaxableAmt', 2] },
+          totalSgstAmt: { $round: ['$totalSgstAmt', 2] },
+          totalCgstAmt: { $round: ['$totalCgstAmt', 2] },
+          totalIgstAmt: { $round: ['$totalIgstAmt', 2] },
+          totalValue: {
+            $round: [
+              { $add: ['$totalTaxableAmt', '$totalSgstAmt', '$totalCgstAmt', '$totalIgstAmt'] },
+              2,
+            ],
+          },
+          invoiceCount: { $size: '$invoiceNumbers' },
+        },
+      },
+      { $sort: { hsnSacCode: 1, unit: 1 } },
+    ];
+
+    const summary = await Invoice.aggregate(pipeline);
+
+    // Compute grand totals
+    const distinctHsnCodes = new Set(summary.map(r => r.hsnSacCode));
+    const allInvoiceNumbers = new Set();
+    // Re-run a lightweight distinct query for accurate invoice count
+    const invoiceDocs = await Invoice.distinct('invoiceNumber', matchStage);
+
+    const totals = {
+      totalTaxableAmt: summary.reduce((s, r) => s + r.totalTaxableAmt, 0),
+      totalSgstAmt: summary.reduce((s, r) => s + r.totalSgstAmt, 0),
+      totalCgstAmt: summary.reduce((s, r) => s + r.totalCgstAmt, 0),
+      totalIgstAmt: summary.reduce((s, r) => s + r.totalIgstAmt, 0),
+      totalValue: summary.reduce((s, r) => s + r.totalValue, 0),
+      distinctHsnCount: distinctHsnCodes.size,
+      invoiceCount: invoiceDocs.length,
+    };
+
+    res.json({ summary, totals });
+  } catch (error) {
+    console.error('Error generating HSN summary:', error);
+    res.status(500).json({ message: 'Failed to generate HSN summary' });
+  }
+});
+
+// GET /api/invoices/hsn-detail?year=2026-2027&from=2026-04-01&to=2027-03-31
+router.get('/hsn-detail', authenticate, async (req, res) => {
+  try {
+    const { year, from, to } = req.query;
+    if (!year || !from || !to) {
+      return res.status(400).json({ message: 'year, from, and to query params are required' });
+    }
+
+    const fromDate = new Date(from);
+    const toDate = new Date(to);
+    toDate.setHours(23, 59, 59, 999);
+
+    const matchStage = {
+      userId: new mongoose.Types.ObjectId(req.user.userId),
+      financialYear: year,
+      date: { $gte: fromDate, $lte: toDate },
+      $or: [
+        { documentType: 'invoice' },
+        { documentType: { $exists: false } },
+        { documentType: null },
+      ],
+    };
+
+    const pipeline = [
+      { $match: matchStage },
+      { $unwind: '$items' },
+      {
+        $project: {
+          _id: 0,
+          invoiceNumber: 1,
+          date: 1,
+          buyerName: 1,
+          buyerGst: 1,
+          taxType: 1,
+          hsnSacCode: '$items.hsnSacCode',
+          description: '$items.description',
+          quantity: '$items.quantity',
+          unit: '$items.unit',
+          rate: '$items.rate',
+          taxableAmount: '$items.taxableAmount',
+          sgstPercentage: { $ifNull: ['$items.sgstPercentage', 0] },
+          sgstAmount: { $ifNull: ['$items.sgstAmount', 0] },
+          cgstPercentage: { $ifNull: ['$items.cgstPercentage', 0] },
+          cgstAmount: { $ifNull: ['$items.cgstAmount', 0] },
+          igstPercentage: { $ifNull: ['$items.igstPercentage', 0] },
+          igstAmount: { $ifNull: ['$items.igstAmount', 0] },
+        },
+      },
+      { $sort: { hsnSacCode: 1, invoiceNumber: 1 } },
+    ];
+
+    const rows = await Invoice.aggregate(pipeline);
+    res.json({ rows });
+  } catch (error) {
+    console.error('Error generating HSN detail:', error);
+    res.status(500).json({ message: 'Failed to generate HSN detail' });
+  }
+});
+
 // GET /api/invoices/:year
 // Optional query param: ?documentType=invoice|credit_note|debit_note
 // Legacy documents (pre-migration) have no documentType field — treated as 'invoice'.

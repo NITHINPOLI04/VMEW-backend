@@ -59,5 +59,6 @@ invoiceSchema.index({ userId: 1, financialYear: 1 });
 invoiceSchema.index({ userId: 1, financialYear: 1, documentType: 1 });
 invoiceSchema.index({ userId: 1, financialYear: 1, "items.productKey": 1 });
 invoiceSchema.index({ userId: 1, financialYear: 1, invoiceNumber: 1, documentType: 1 }, { unique: true });
+invoiceSchema.index({ userId: 1, financialYear: 1, date: 1 });
 
 module.exports = mongoose.model('Invoice', invoiceSchema);
