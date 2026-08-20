@@ -8,7 +8,7 @@ const { financialValidationMiddleware } = require('../utils/calcEngine');
 const { getFinancialYear } = require('../utils/financialYear');
 const { convertToWords } = require('../utils/numberToWords');
 const { normalizeProductKey, computeStockStatus } = require('../utils/productUtils');
-const { invoiceBodySchema, paymentStatusSchema } = require('../validation/schemas');
+const { invoiceBodySchema, paymentStatusSchema, paymentEntrySchema } = require('../validation/schemas');
 
 const router = express.Router();
 
@@ -657,7 +657,12 @@ router.patch('/:id/payment-status', authenticate, validate(paymentStatusSchema),
     if (receivedAmount !== undefined && typeof receivedAmount === 'number') {
       updateData.receivedAmount = Math.max(0, receivedAmount);
     }
-    if (status !== 'Partially Paid') {
+
+    // When setting to Unpaid, clear all payment entries and reset receivedAmount
+    if (status === 'Unpaid') {
+      updateData.payments = [];
+      updateData.receivedAmount = 0;
+    } else if (status !== 'Partially Paid') {
       updateData.receivedAmount = 0;
     }
 
@@ -673,6 +678,81 @@ router.patch('/:id/payment-status', authenticate, validate(paymentStatusSchema),
     res.json(updatedInvoice);
   } catch (error) {
     console.error('Error updating payment status:', error);
+    res.status(500).json({ message: 'Internal server error' });
+  }
+});
+
+// POST /api/invoices/:id/payments — Add a payment entry
+router.post('/:id/payments', authenticate, validate(paymentEntrySchema), async (req, res) => {
+  try {
+    const invoice = await Invoice.findOne({ _id: req.params.id, userId: req.user.userId });
+    if (!invoice) return res.status(404).json({ message: 'Invoice not found' });
+
+    const entry = req.body;
+
+    // Compute deduction totals before saving
+    entry.totalPermanentDeductions = (entry.ldRecovery || 0) + (entry.itTds || 0) + (entry.otherPermanent || 0);
+    entry.totalRecoverableDeductions = (entry.gstTds || 0) + (entry.gstRetention || 0)
+      + (entry.securityDeposit || 0) + (entry.bankGuarantee || 0)
+      + (entry.otherRecoverable || 0);
+    entry.netAmount = entry.grossAmount - entry.totalPermanentDeductions - entry.totalRecoverableDeductions;
+
+    // Guard: netAmount cannot be negative
+    if (entry.netAmount < 0) {
+      return res.status(400).json({ message: 'Deductions exceed gross amount' });
+    }
+
+    invoice.payments.push(entry);
+
+    // Auto-update paymentStatus and receivedAmount
+    const totalReceived = invoice.payments.reduce((s, p) => s + p.netAmount, 0);
+    const totalRecoverable = invoice.payments.reduce((s, p) => s + p.totalRecoverableDeductions, 0);
+
+    // Status auto-logic:
+    // Complete only when balance=0 AND no recoverable deductions remain
+    if (totalReceived >= invoice.grandTotal && totalRecoverable === 0) {
+      invoice.paymentStatus = 'Payment Complete';
+    } else {
+      invoice.paymentStatus = 'Partially Paid';
+    }
+
+    invoice.receivedAmount = totalReceived;
+
+    await invoice.save();
+    res.json({ invoice, revenueRecognised: totalReceived });
+  } catch (error) {
+    console.error('Error adding payment entry:', error);
+    res.status(500).json({ message: 'Internal server error' });
+  }
+});
+
+// DELETE /api/invoices/:id/payments/:paymentId — Remove a payment entry
+router.delete('/:id/payments/:paymentId', authenticate, async (req, res) => {
+  try {
+    const invoice = await Invoice.findOne({ _id: req.params.id, userId: req.user.userId });
+    if (!invoice) return res.status(404).json({ message: 'Invoice not found' });
+
+    invoice.payments = invoice.payments.filter(p => p._id.toString() !== req.params.paymentId);
+
+    // Recalculate status after removal
+    const totalReceived = invoice.payments.reduce((s, p) => s + p.netAmount, 0);
+    const totalRecoverable = invoice.payments.reduce((s, p) => s + p.totalRecoverableDeductions, 0);
+
+    if (invoice.payments.length === 0) {
+      invoice.paymentStatus = 'Unpaid';
+      invoice.receivedAmount = 0;
+    } else if (totalReceived >= invoice.grandTotal && totalRecoverable === 0) {
+      invoice.paymentStatus = 'Payment Complete';
+      invoice.receivedAmount = totalReceived;
+    } else {
+      invoice.paymentStatus = 'Partially Paid';
+      invoice.receivedAmount = totalReceived;
+    }
+
+    await invoice.save();
+    res.json({ invoice });
+  } catch (error) {
+    console.error('Error deleting payment entry:', error);
     res.status(500).json({ message: 'Internal server error' });
   }
 });

@@ -1,5 +1,34 @@
 const mongoose = require('mongoose');
 
+// ─── Payment Entry sub-document ───────────────────────────────────────────────
+const paymentEntrySchema = new mongoose.Schema({
+  paymentDate:      { type: Date, required: true },
+  grossAmount:      { type: Number, required: true, min: 0 },
+  mode:             { type: String, enum: ['NEFT', 'RTGS', 'Cheque', 'Cash', 'UPI'], default: 'NEFT' },
+  utrNumber:        { type: String, default: '' },
+  notes:            { type: String, default: '' },
+
+  // Permanent deductions — reduce revenue permanently
+  ldRecovery:       { type: Number, default: 0 },
+  itTds:            { type: Number, default: 0 },
+  otherPermanent:   { type: Number, default: 0 },
+  otherPermanentNote: { type: String, default: '' },
+
+  // Recoverable deductions — keep invoice as Partially Paid until released
+  gstTds:           { type: Number, default: 0 },
+  gstRetention:     { type: Number, default: 0 },
+  securityDeposit:  { type: Number, default: 0 },
+  bankGuarantee:    { type: Number, default: 0 },
+  otherRecoverable: { type: Number, default: 0 },
+  otherRecoverableNote: { type: String, default: '' },
+
+  // Pre-computed on save
+  totalPermanentDeductions:   { type: Number, default: 0 },
+  totalRecoverableDeductions: { type: Number, default: 0 },
+  netAmount:        { type: Number, required: true },
+}, { _id: true, timestamps: false });
+
+// ─── Invoice document ─────────────────────────────────────────────────────────
 const invoiceSchema = new mongoose.Schema({
   userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
   invoiceNumber: { type: String, required: true },
@@ -49,6 +78,7 @@ const invoiceSchema = new mongoose.Schema({
   financialYear: { type: String, required: true },
   invoiceType: { type: String, enum: ['Product', 'Service'], default: 'Product' },
   documentType: { type: String, enum: ['invoice', 'credit_note', 'debit_note'], default: 'invoice' },
+  payments: { type: [paymentEntrySchema], default: [] },
   receivedAmount: { type: Number, default: 0 },
   linkedInvoiceId: { type: mongoose.Schema.Types.ObjectId, ref: 'Invoice' },
   linkedInvoiceNumber: { type: String, trim: true },

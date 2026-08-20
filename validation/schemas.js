@@ -91,6 +91,25 @@ const invoiceBodySchema = z.object({
 
 const paymentStatusSchema = z.object({
   status: z.enum(['Payment Complete', 'Partially Paid', 'Unpaid']),
+  receivedAmount: z.number().min(0).optional(),
+});
+
+const paymentEntrySchema = z.object({
+  paymentDate:     z.string().or(z.date()),
+  grossAmount:     z.number().min(0, 'Gross amount must be ≥ 0'),
+  mode:            z.enum(['NEFT', 'RTGS', 'Cheque', 'Cash', 'UPI']).default('NEFT'),
+  utrNumber:       z.string().optional().default(''),
+  notes:           z.string().max(300).optional().default(''),
+  ldRecovery:      z.number().min(0).default(0),
+  itTds:           z.number().min(0).default(0),
+  otherPermanent:  z.number().min(0).default(0),
+  otherPermanentNote: z.string().optional().default(''),
+  gstTds:          z.number().min(0).default(0),
+  gstRetention:    z.number().min(0).default(0),
+  securityDeposit: z.number().min(0).default(0),
+  bankGuarantee:   z.number().min(0).default(0),
+  otherRecoverable: z.number().min(0).default(0),
+  otherRecoverableNote: z.string().optional().default(''),
 });
 
 // ─── Delivery Challan ─────────────────────────────────────────────────────────
@@ -210,6 +229,7 @@ module.exports = {
   loginSchema,
   invoiceBodySchema,
   paymentStatusSchema,
+  paymentEntrySchema,
   dcBodySchema,
   quotationBodySchema,
   templateBodySchema,
