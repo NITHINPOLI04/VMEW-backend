@@ -39,6 +39,7 @@ const quotationSchema = new mongoose.Schema({
   validity: { type: String },
   grandTotal: { type: Number, required: true },
   totalInWords: { type: String },
+  note: { type: String },
   financialYear: { type: String, required: true }
 }, { timestamps: true });
 

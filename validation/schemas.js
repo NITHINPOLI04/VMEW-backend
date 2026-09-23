@@ -148,6 +148,7 @@ const quotationBodySchema = z.object({
   validity:        z.string().optional(),
   grandTotal:      z.number().min(0),
   totalInWords:    z.string().optional(),
+  note:            z.string().optional(),
 });
 
 // ─── Template ─────────────────────────────────────────────────────────────────

@@ -84,6 +84,7 @@ router.post('/', authenticate, validate(quotationBodySchema), financialValidatio
       validity: d.validity,
       grandTotal: d.grandTotal,
       totalInWords: d.totalInWords,
+      note: d.note,
       userId: req.user.userId,
       financialYear,
     });
@@ -130,6 +131,7 @@ router.put('/:id', authenticate, validate(quotationBodySchema), financialValidat
         validity: d.validity,
         grandTotal: d.grandTotal,
         totalInWords: d.totalInWords,
+        note: d.note,
         financialYear,
       },
       { new: true, runValidators: true }
