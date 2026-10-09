@@ -225,6 +225,34 @@ const poBodySchema = z.object({
   notes:           z.string().optional(),
 });
 
+// ─── Purchase Report ──────────────────────────────────────────────────────────
+
+const purchaseReportBodySchema = z.object({
+  partyInvoiceNumber: z.string().min(1, 'Party invoice number is required'),
+  date:               z.string().min(1, 'Date is required'),
+  partyName:          z.string().min(1, 'Party name is required'),
+  partyAddress:       z.string().optional().default(''),
+  partyGst:           z.string().optional().default(''),
+  taxType:            z.enum(['sgstcgst', 'igst']),
+  taxableValue:       z.number().min(0, 'Taxable value must be ≥ 0'),
+  sgstPercentage:     z.number().min(0).optional().default(9),
+  cgstPercentage:     z.number().min(0).optional().default(9),
+  igstPercentage:     z.number().min(0).optional().default(18),
+  igstAmount:         z.number().min(0).default(0),
+  cgstAmount:         z.number().min(0).default(0),
+  sgstAmount:         z.number().min(0).default(0),
+  totalAmount:        z.number().min(0, 'Total amount must be ≥ 0'),
+  notes:              z.string().optional().default(''),
+});
+
+const purchaseReportPaymentEntrySchema = z.object({
+  paymentDate:     z.string().or(z.date()),
+  amount:          z.number().min(0, 'Amount must be ≥ 0'),
+  mode:            z.enum(['NEFT', 'RTGS', 'Cheque', 'Cash', 'UPI']).default('NEFT'),
+  referenceNumber: z.string().optional().default(''),
+  notes:           z.string().max(300).optional().default(''),
+});
+
 module.exports = {
   signupSchema,
   loginSchema,
@@ -240,4 +268,6 @@ module.exports = {
   supplierBodySchema,
   customerBodySchema,
   poBodySchema,
+  purchaseReportBodySchema,
+  purchaseReportPaymentEntrySchema,
 };

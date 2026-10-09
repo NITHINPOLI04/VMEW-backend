@@ -87,6 +87,7 @@ app.use('/api/inventory', apiLimiter);
 app.use('/api/suppliers', apiLimiter);
 app.use('/api/customers', apiLimiter);
 app.use('/api/po', apiLimiter);
+app.use('/api/purchase-reports', apiLimiter);
 
 // ─── MongoDB connection ────────────────────────────────────────────────────────
 mongoose.connect(MONGODB_URI)
@@ -103,6 +104,7 @@ const inventoryRoutes  = require('./routes/inventory');
 const supplierRoutes   = require('./routes/suppliers');
 const customerRoutes   = require('./routes/customers');
 const poRoutes         = require('./routes/po');
+const purchaseReportRoutes = require('./routes/purchaseReports');
 
 app.use('/api/auth',      authRoutes);
 app.use('/api/invoices',  invoiceRoutes);
@@ -113,6 +115,7 @@ app.use('/api/inventory', inventoryRoutes);
 app.use('/api/suppliers', supplierRoutes);
 app.use('/api/customers', customerRoutes);
 app.use('/api/po',        poRoutes);
+app.use('/api/purchase-reports', purchaseReportRoutes);
 
 // ─── Health check ──────────────────────────────────────────────────────────────
 app.get('/api/healthz', (req, res) => res.status(200).send('OK'));
