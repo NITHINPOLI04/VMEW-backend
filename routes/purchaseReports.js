@@ -123,6 +123,66 @@ router.delete('/:id', authenticate, async (req, res) => {
   }
 });
 
+// ─── GST Filing Status endpoints ──────────────────────────────────────────────
+
+// PATCH /api/purchase-reports/bulk/gst-status — mark all entries in a period as GST filed
+router.patch('/bulk/gst-status', authenticate, async (req, res) => {
+  try {
+    const { financialYear, month, year } = req.body;
+    if (!financialYear || month === undefined || month === null || !year) {
+      return res.status(400).json({ message: 'financialYear, month, and year are required' });
+    }
+
+    // Build date range for the given month
+    const startDate = new Date(year, month, 1);
+    const endDate = new Date(year, month + 1, 0, 23, 59, 59, 999);
+
+    const result = await PurchaseReport.updateMany(
+      {
+        userId: req.user.userId,
+        financialYear,
+        date: { $gte: startDate, $lte: endDate },
+        gstFiled: false,
+      },
+      {
+        $set: { gstFiled: true, gstFiledDate: new Date() },
+      }
+    );
+
+    // Return updated reports for the full FY so frontend can refresh
+    const reports = await PurchaseReport.find({
+      userId: req.user.userId,
+      financialYear,
+    }).sort({ date: -1 });
+
+    res.json({ modifiedCount: result.modifiedCount, reports });
+  } catch (error) {
+    console.error('Error bulk updating GST status:', error);
+    res.status(500).json({ message: 'Internal server error' });
+  }
+});
+
+// PATCH /api/purchase-reports/:id/gst-status — toggle GST filed status for a single report
+router.patch('/:id/gst-status', authenticate, async (req, res) => {
+  try {
+    const report = await PurchaseReport.findOne({
+      _id: req.params.id,
+      userId: req.user.userId,
+    });
+    if (!report) return res.status(404).json({ message: 'Purchase Report not found' });
+
+    const newStatus = !report.gstFiled;
+    report.gstFiled = newStatus;
+    report.gstFiledDate = newStatus ? new Date() : null;
+    await report.save();
+
+    res.json({ report });
+  } catch (error) {
+    console.error('Error toggling GST status:', error);
+    res.status(500).json({ message: 'Internal server error' });
+  }
+});
+
 // ─── Payment endpoints ────────────────────────────────────────────────────────
 
 // PUT /api/purchase-reports/:id/payment-status — quick status change (without adding payment entry)

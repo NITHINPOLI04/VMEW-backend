@@ -33,6 +33,8 @@ const purchaseReportSchema = new mongoose.Schema({
   },
   payments:        { type: [purchasePaymentEntrySchema], default: [] },
   receivedAmount:  { type: Number, default: 0 },
+  gstFiled:        { type: Boolean, default: false },
+  gstFiledDate:    { type: Date, default: null },
   notes:           { type: String, default: '' },
   financialYear:   { type: String, required: true },
 }, { timestamps: true });
